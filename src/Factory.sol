@@ -5,9 +5,7 @@ import "openzeppelin-contracts/contracts/access/Ownable.sol";
 import "./AonProxy.sol";
 
 contract Factory is Ownable {
-    error OnlyOwner();
-
-    event CreateContract(address indexed contractAddress);
+    event AonCreated(address contractAddress);
 
     address public implementation;
 
@@ -19,8 +17,8 @@ contract Factory is Ownable {
         implementation = _implementation;
     }
 
-    function createContract() public {
+    function create() external onlyOwner {
         address proxy = address(new AonProxy(implementation));
-        emit CreateContract(proxy);
+        emit AonCreated(proxy);
     }
 }
