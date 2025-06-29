@@ -1,6 +1,7 @@
 {
     "cSpell.words": [
-        "entrancy"
+        "entrancy",
+        "Initializable"
     ],
     "[solidity]": {
         "editor.defaultFormatter": "JuanBlanco.solidity",

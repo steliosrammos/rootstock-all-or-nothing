@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.30;
 
+import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+
 interface IOwnable {
     function owner() external view returns (address);
 }
@@ -16,7 +18,7 @@ interface IOwnable {
     - Successful/Failed: Implicit states, based on the project balance while the project hasn't expired yet.
 */
 
-contract Aon {
+contract Aon is Initializable {
     /*
     * EVENTS
     */
@@ -83,7 +85,7 @@ contract Aon {
 
     mapping(address => uint256) public contributions;
 
-    constructor(address payable _creator, uint256 _goal, uint256 _durationInSeconds) {
+    function initialize(address payable _creator, uint256 _goal, uint256 _durationInSeconds) external initializer {
         creator = _creator;
         goal = _goal;
         durationInSeconds = _durationInSeconds;
