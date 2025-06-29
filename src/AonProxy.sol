@@ -13,4 +13,8 @@ contract AonProxy is Proxy {
     function _implementation() internal view override returns (address) {
         return implementation;
     }
+
+    receive() external payable {
+        revert("Direct transfers are not allowed.");
+    }
 }
