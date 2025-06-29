@@ -1,5 +1,11 @@
 {
     "cSpell.words": [
         "entrancy"
-    ]
+    ],
+    "[solidity]": {
+        "editor.defaultFormatter": "JuanBlanco.solidity",
+        "editor.formatOnSave": true
+    },
+    "solidity.formatter": "forge",
+    "solidity.monoRepoSupport": true
 }

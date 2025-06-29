@@ -184,7 +184,9 @@ contract AonTest is Test {
         emit ContributionRefunded(contributor1, contributionAmount);
         aon.refund();
 
-        assertEq(contributor1.balance, contributorInitialBalance + contributionAmount, "Contributor should get money back");
+        assertEq(
+            contributor1.balance, contributorInitialBalance + contributionAmount, "Contributor should get money back"
+        );
         assertEq(aon.contributions(contributor1), 0, "Contribution record should be cleared");
     }
 
@@ -199,7 +201,9 @@ contract AonTest is Test {
         uint256 contributorInitialBalance = contributor1.balance;
         vm.prank(contributor1);
         aon.refund();
-        assertEq(contributor1.balance, contributorInitialBalance + contributionAmount, "Contributor should get money back");
+        assertEq(
+            contributor1.balance, contributorInitialBalance + contributionAmount, "Contributor should get money back"
+        );
     }
 
     function test_Refund_SuccessIfUnclaimed() public {
@@ -214,7 +218,9 @@ contract AonTest is Test {
         uint256 contributorInitialBalance = contributor1.balance;
         vm.prank(contributor1);
         aon.refund();
-        assertEq(contributor1.balance, contributorInitialBalance + contributionAmount, "Contributor should get money back");
+        assertEq(
+            contributor1.balance, contributorInitialBalance + contributionAmount, "Contributor should get money back"
+        );
     }
 
     function test_Refund_FailsForZeroContribution() public {
@@ -239,10 +245,7 @@ contract AonTest is Test {
         vm.prank(contributor1);
         vm.expectRevert(
             abi.encodeWithSelector(
-                Aon.InsufficientBalanceForRefund.selector,
-                address(aon).balance,
-                contributionAmount,
-                GOAL
+                Aon.InsufficientBalanceForRefund.selector, address(aon).balance, contributionAmount, GOAL
             )
         );
         aon.refund();
@@ -268,7 +271,6 @@ contract AonTest is Test {
         vm.expectRevert(abi.encodeWithSelector(Aon.FailedToRefund.selector, innerError));
         attacker.startAttack();
     }
-
 
     /*
     * CANCEL TESTS
@@ -354,7 +356,6 @@ contract AonTest is Test {
     }
 }
 
-
 /// @dev A helper contract to test re-entrancy protection on the refund function.
 contract MaliciousRefund {
     Aon public immutable aon;
@@ -377,4 +378,4 @@ contract MaliciousRefund {
         // The re-entrant call should fail if the contract is secure.
         aon.refund();
     }
-} 
+}

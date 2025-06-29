@@ -100,13 +100,10 @@ contract Aon {
     }
 
     function isFinalized() internal view returns (bool) {
-        return (
-            address(this).balance == 0
-            && block.timestamp > (endTime() + CLAIM_REFUND_WINDOW_IN_SECONDS * 2)
-        );
+        return (address(this).balance == 0 && block.timestamp > (endTime() + CLAIM_REFUND_WINDOW_IN_SECONDS * 2));
     }
 
-     function _canRefund(uint256 _refundAmount) internal view {
+    function _canRefund(uint256 _refundAmount) internal view {
         if (_refundAmount == 0) revert CannotRefundZeroContribution();
 
         // Refund is allowed if:
@@ -183,25 +180,16 @@ contract Aon {
 
     function isUnclaimed() public view returns (bool) {
         return (
-            block.timestamp > endTime() + CLAIM_REFUND_WINDOW_IN_SECONDS
-            && isGoalReached()
-            && address(this).balance > 0
+            block.timestamp > endTime() + CLAIM_REFUND_WINDOW_IN_SECONDS && isGoalReached() && address(this).balance > 0
         );
     }
 
     function isFailed() public view returns (bool) {
-        return (
-            block.timestamp > endTime()
-            && !isGoalReached()
-        );
+        return (block.timestamp > endTime() && !isGoalReached());
     }
 
     function isSuccessful() public view returns (bool) {
-        return (
-            !isCancelled
-            && block.timestamp > endTime()
-            && isGoalReached()
-        );
+        return (!isCancelled && block.timestamp > endTime() && isGoalReached());
     }
 
     function isCreator() internal view returns (bool) {
@@ -217,7 +205,6 @@ contract Aon {
         contributions[msg.sender] += msg.value;
         emit ContributionReceived(msg.sender, msg.value);
     }
-
 
     function refund() external {
         uint256 refundAmount = contributions[msg.sender];
