@@ -3,6 +3,7 @@ pragma solidity ^0.8.30;
 
 import "forge-std/Test.sol";
 import "../src/Aon.sol";
+import "../src/AonProxy.sol";
 
 contract AonTest is Test {
     Aon aon;
@@ -29,8 +30,15 @@ contract AonTest is Test {
 
     function setUp() public {
         factoryOwner = address(this);
+
+        // Deploy implementation and proxy
+        Aon implementation = new Aon();
+        AonProxy proxy = new AonProxy(address(implementation));
+        aon = Aon(address(proxy));
+
+        // Initialize contract via proxy
         vm.prank(factoryOwner);
-        aon = new Aon(creator, GOAL, DURATION);
+        aon.initialize(creator, GOAL, DURATION);
 
         vm.deal(contributor1, 100 ether);
         vm.deal(contributor2, 100 ether);
@@ -49,7 +57,7 @@ contract AonTest is Test {
     * CONSTRUCTOR TESTS
     */
 
-    function test_Constructor_SetsInitialValues() public {
+    function test_Constructor_SetsInitialValues() public view {
         assertEq(aon.creator(), creator, "Creator should be set");
         assertEq(aon.goal(), GOAL, "Goal should be set");
         assertEq(aon.durationInSeconds(), DURATION, "Duration should be set");

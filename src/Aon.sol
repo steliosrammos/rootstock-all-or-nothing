@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.30;
 
-import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import "openzeppelin-contracts/contracts/proxy/utils/Initializable.sol";
 
 interface IOwnable {
     function owner() external view returns (address);
@@ -74,18 +74,23 @@ contract Aon is Initializable {
 
     uint256 public constant CLAIM_REFUND_WINDOW_IN_SECONDS = 30 days;
 
-    address payable public immutable creator;
-    uint256 public immutable goal;
-    uint256 public immutable durationInSeconds;
-    uint256 public immutable startTime;
+    address payable public creator;
+    uint256 public goal;
+    uint256 public durationInSeconds;
+    uint256 public startTime;
 
     bool public isCancelled = false;
 
-    IOwnable public immutable factory;
+    IOwnable public factory;
 
     mapping(address => uint256) public contributions;
 
-    function initialize(address payable _creator, uint256 _goal, uint256 _durationInSeconds) external initializer {
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
+    function initialize(address payable _creator, uint256 _goal, uint256 _durationInSeconds) public initializer {
         creator = _creator;
         goal = _goal;
         durationInSeconds = _durationInSeconds;
