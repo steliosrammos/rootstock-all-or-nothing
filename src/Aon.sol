@@ -2,6 +2,7 @@
 pragma solidity ^0.8.30;
 
 import "openzeppelin-contracts/contracts/proxy/utils/Initializable.sol";
+import "./AonGoalReachedNative.sol";
 
 interface IOwnable {
     function owner() external view returns (address);
@@ -72,29 +73,37 @@ contract Aon is Initializable {
     // Permission Errors
     error Unauthorized(string reason);
 
+    // Constants
     uint256 public constant CLAIM_REFUND_WINDOW_IN_SECONDS = 30 days;
 
+    /*
+    * STATE VARIABLES
+    */
+    IOwnable public factory;
     address payable public creator;
     uint256 public goal;
     uint256 public durationInSeconds;
     uint256 public startTime;
-
     bool public isCancelled = false;
-
-    IOwnable public factory;
-
     mapping(address => uint256) public contributions;
+    IAonGoalReached public goalReachedStrategy;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
     }
 
-    function initialize(address payable _creator, uint256 _goal, uint256 _durationInSeconds) public initializer {
+    function initialize(
+        address payable _creator,
+        uint256 _goal,
+        uint256 _durationInSeconds,
+        address _goalReachedStrategy
+    ) public initializer {
         creator = _creator;
         goal = _goal;
         durationInSeconds = _durationInSeconds;
         startTime = block.timestamp;
+        goalReachedStrategy = IAonGoalReached(_goalReachedStrategy);
 
         factory = IOwnable(msg.sender);
     }
@@ -124,9 +133,9 @@ contract Aon is Initializable {
         uint256 balance = address(this).balance;
 
         // Optional: Allow refunds during an active, successful campaign if it doesn't drop the total below the goal.
-        if (isGoalReached() && balance - _refundAmount >= goal) return;
+        if (goalReachedStrategy.isGoalReached() && balance - _refundAmount >= goal) return;
 
-        if (isGoalReached() && balance - _refundAmount < goal) {
+        if (goalReachedStrategy.isGoalReached() && balance - _refundAmount < goal) {
             revert InsufficientBalanceForRefund(balance, _refundAmount, goal);
         }
     }
@@ -136,7 +145,7 @@ contract Aon is Initializable {
         if (isCancelled) revert CannotClaimCancelledContract();
         if (isFailed()) revert CannotClaimFailedContract();
         if (isUnclaimed()) revert CannotClaimUnclaimedContract();
-        if (!isGoalReached()) revert GoalNotReached();
+        if (!goalReachedStrategy.isGoalReached()) revert GoalNotReached();
 
         return true;
     }
@@ -181,22 +190,19 @@ contract Aon is Initializable {
     /*
     * DERIVED STATE FUNCTIONS
     */
-    function isGoalReached() public view returns (bool) {
-        return address(this).balance >= goal;
-    }
-
     function isUnclaimed() public view returns (bool) {
         return (
-            block.timestamp > endTime() + CLAIM_REFUND_WINDOW_IN_SECONDS && isGoalReached() && address(this).balance > 0
+            block.timestamp > endTime() + CLAIM_REFUND_WINDOW_IN_SECONDS && goalReachedStrategy.isGoalReached()
+                && address(this).balance > 0
         );
     }
 
     function isFailed() public view returns (bool) {
-        return (block.timestamp > endTime() && !isGoalReached());
+        return (block.timestamp > endTime() && !goalReachedStrategy.isGoalReached());
     }
 
     function isSuccessful() public view returns (bool) {
-        return (!isCancelled && block.timestamp > endTime() && isGoalReached());
+        return (!isCancelled && block.timestamp > endTime() && goalReachedStrategy.isGoalReached());
     }
 
     function isCreator() internal view returns (bool) {

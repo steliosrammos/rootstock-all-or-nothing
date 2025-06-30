@@ -3,6 +3,7 @@ pragma solidity ^0.8.30;
 
 import "openzeppelin-contracts/contracts/access/Ownable.sol";
 import "./AonProxy.sol";
+import "./Aon.sol";
 
 contract Factory is Ownable {
     event AonCreated(address contractAddress);
@@ -17,8 +18,12 @@ contract Factory is Ownable {
         implementation = _implementation;
     }
 
-    function create() external onlyOwner {
-        address proxy = address(new AonProxy(implementation));
-        emit AonCreated(proxy);
+    function create(address payable _creator, uint256 _goal, uint256 _durationInSeconds, address _goalReachedStrategy)
+        external
+        onlyOwner
+    {
+        AonProxy proxy = new AonProxy(implementation);
+        Aon(address(proxy)).initialize(_creator, _goal, _durationInSeconds, _goalReachedStrategy);
+        emit AonCreated(address(proxy));
     }
 }

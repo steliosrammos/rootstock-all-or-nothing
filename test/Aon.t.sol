@@ -4,9 +4,11 @@ pragma solidity ^0.8.30;
 import "forge-std/Test.sol";
 import "../src/Aon.sol";
 import "../src/AonProxy.sol";
+import "../src/AonGoalReachedNative.sol";
 
 contract AonTest is Test {
     Aon aon;
+    AonGoalReachedNative private goalReachedStrategy;
 
     address payable private creator = payable(makeAddr("creator"));
     address payable private contributor1 = payable(makeAddr("contributor1"));
@@ -30,6 +32,7 @@ contract AonTest is Test {
 
     function setUp() public {
         factoryOwner = address(this);
+        goalReachedStrategy = new AonGoalReachedNative();
 
         // Deploy implementation and proxy
         Aon implementation = new Aon();
@@ -38,7 +41,7 @@ contract AonTest is Test {
 
         // Initialize contract via proxy
         vm.prank(factoryOwner);
-        aon.initialize(creator, GOAL, DURATION);
+        aon.initialize(creator, GOAL, DURATION, address(goalReachedStrategy));
 
         vm.deal(contributor1, 100 ether);
         vm.deal(contributor2, 100 ether);
@@ -62,6 +65,9 @@ contract AonTest is Test {
         assertEq(aon.goal(), GOAL, "Goal should be set");
         assertEq(aon.durationInSeconds(), DURATION, "Duration should be set");
         assertEq(address(aon.factory()), factoryOwner, "Factory owner should be this contract");
+        assertEq(
+            address(aon.goalReachedStrategy()), address(goalReachedStrategy), "Goal reached strategy should be set"
+        );
         assertGt(aon.startTime(), 0, "Start time should be set");
         assertEq(aon.isCancelled(), false, "Should not be cancelled initially");
     }
