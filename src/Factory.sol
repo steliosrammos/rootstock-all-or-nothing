@@ -18,12 +18,14 @@ contract Factory is Ownable {
         implementation = _implementation;
     }
 
-    function create(address payable _creator, uint256 _goal, uint256 _durationInSeconds, address _goalReachedStrategy)
-        external
-        onlyOwner
-    {
+    function create(
+        address payable creator,
+        uint256 goalInEther,
+        uint256 durationInSeconds,
+        address goalReachedStrategy
+    ) external onlyOwner {
         AonProxy proxy = new AonProxy(implementation);
-        Aon(address(proxy)).initialize(_creator, _goal, _durationInSeconds, _goalReachedStrategy);
+        Aon(address(proxy)).initialize(creator, goalInEther, durationInSeconds, goalReachedStrategy);
         emit AonCreated(address(proxy));
     }
 }

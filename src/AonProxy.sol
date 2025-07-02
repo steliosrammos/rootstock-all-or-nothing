@@ -6,6 +6,8 @@ import "openzeppelin-contracts/contracts/proxy/Proxy.sol";
 contract AonProxy is Proxy {
     address public immutable implementation;
 
+    error DirectTransfersNotAllowed();
+
     constructor(address impl) Proxy() {
         implementation = impl;
     }
@@ -15,6 +17,6 @@ contract AonProxy is Proxy {
     }
 
     receive() external payable {
-        revert("Direct transfers are not allowed.");
+        revert DirectTransfersNotAllowed();
     }
 }

@@ -265,6 +265,10 @@ contract AonTest is Test {
         aon.refund();
     }
 
+    /*
+    * REENTRANCY TESTS
+    */
+
     function test_Refund_ReentrancyGuard() public {
         // Setup attacker contract
         MaliciousRefund attacker = new MaliciousRefund(aon);
@@ -284,6 +288,70 @@ contract AonTest is Test {
         bytes memory innerError = abi.encodeWithSelector(Aon.CannotRefundZeroContribution.selector);
         vm.expectRevert(abi.encodeWithSelector(Aon.FailedToRefund.selector, innerError));
         attacker.startAttack();
+    }
+
+    function test_Claim_ReentrancyAttack() public {
+        // Deploy attacker contract. This attacker will pose as the creator.
+        MaliciousCreator attacker = new MaliciousCreator();
+
+        // We need a new Aon instance for this test to set the malicious creator.
+        Aon implementation = new Aon();
+        AonProxy proxy = new AonProxy(address(implementation));
+        Aon aonForTest = Aon(address(proxy));
+        vm.prank(factoryOwner);
+        aonForTest.initialize(payable(address(attacker)), GOAL, DURATION, address(goalReachedStrategy));
+
+        // The attacker needs to know about the Aon instance.
+        attacker.setAon(aonForTest);
+
+        // Fund campaign to success
+        vm.prank(contributor1);
+        aonForTest.contribute{value: GOAL}();
+
+        vm.warp(aonForTest.endTime() + 1 days);
+        assertTrue(aonForTest.isSuccessful());
+
+        // Attacker starts the claim, which should lead to re-entrancy.
+        // In the vulnerable contract, the re-entrant `cancel` call will succeed.
+        // This test should fail once a re-entrancy guard is added.
+        attacker.claim();
+
+        // Check that the attack succeeded (which is bad)
+        assertTrue(aonForTest.isCancelled(), "Attack should have cancelled the contract");
+    }
+
+    function test_SwipeFunds_ReentrancyAttack() public {
+        // 1. Deploy attacker that will act as the factory owner
+        MaliciousFactoryOwner attacker = new MaliciousFactoryOwner();
+
+        // 2. Deploy a factory contract that designates the attacker as its owner
+        MaliciousFactory factory = new MaliciousFactory(address(attacker));
+
+        // 3. Deploy a new Aon instance for this test, via the malicious factory
+        Aon implementation = new Aon();
+        AonProxy proxy = new AonProxy(address(implementation));
+        Aon aonForTest = Aon(address(proxy));
+        vm.prank(address(factory)); // Pretend the factory is deploying this Aon instance
+        aonForTest.initialize(creator, GOAL, DURATION, address(goalReachedStrategy));
+
+        // 4. Link the attacker contract to the new Aon instance
+        attacker.setAon(aonForTest);
+
+        // 5. Fund the campaign and let it run its course until funds are swipe-able
+        vm.prank(contributor1);
+        aonForTest.contribute{value: 1 ether}();
+        vm.warp(aonForTest.endTime() + (aonForTest.CLAIM_REFUND_WINDOW_IN_SECONDS() * 2) + 1 days);
+
+        // 6. Attacker tries to swipe funds, which triggers a re-entrant call.
+        // The attack should fail because the contract becomes finalized after funds are sent,
+        // preventing the cancel() call in the malicious receive() function.
+        bytes memory innerError = abi.encodeWithSelector(Aon.CannotCancelFinalizedContract.selector);
+        vm.expectRevert(abi.encodeWithSelector(Aon.FailedToSwipeFunds.selector, innerError));
+        vm.prank(address(attacker));
+        attacker.swipe();
+
+        // 7. Check that the attack failed (which is good) - contract should not be cancelled
+        assertFalse(aonForTest.isCancelled(), "Attack should have failed and contract should not be cancelled");
     }
 
     /*
@@ -391,5 +459,60 @@ contract MaliciousRefund {
     receive() external payable {
         // The re-entrant call should fail if the contract is secure.
         aon.refund();
+    }
+}
+
+/// @dev An attacker contract to test re-entrancy on claim.
+/// It tries to cancel the campaign during the claim payout.
+contract MaliciousCreator {
+    Aon aon;
+
+    function setAon(Aon _aon) external {
+        aon = _aon;
+    }
+
+    function claim() external {
+        aon.claim();
+    }
+
+    receive() external payable {
+        // When we receive the claimed funds, try to cancel the campaign.
+        // This shouldn't be possible in a secure contract.
+        if (address(aon).balance == 0) {
+            aon.cancel();
+        }
+    }
+}
+
+/// @dev A mock factory used for the swipeFunds re-entrancy test.
+/// It allows us to set a malicious owner.
+contract MaliciousFactory is IOwnable {
+    address public immutable override owner;
+
+    constructor(address _owner) {
+        owner = _owner;
+    }
+}
+
+/// @dev An attacker contract to test re-entrancy on swipeFunds.
+/// It poses as the factory owner and tries to cancel the campaign
+/// when it receives the swiped funds.
+contract MaliciousFactoryOwner {
+    Aon aon;
+
+    function setAon(Aon _aon) external {
+        aon = _aon;
+    }
+
+    function swipe() external {
+        aon.swipeFunds();
+    }
+
+    receive() external payable {
+        // When we receive the swiped funds, try to cancel.
+        // The `cancel` call will check if `msg.sender == factory.owner()`.
+        // Since this contract is the factory owner in the test setup,
+        // the vulnerable contract will allow this.
+        aon.cancel();
     }
 }

@@ -119,8 +119,8 @@ contract Aon is Initializable {
         return (address(this).balance == 0 && block.timestamp > (endTime() + CLAIM_REFUND_WINDOW_IN_SECONDS * 2));
     }
 
-    function _canRefund(uint256 _refundAmount) internal view {
-        if (_refundAmount == 0) revert CannotRefundZeroContribution();
+    function canRefund(uint256 refundAmount) internal view {
+        if (refundAmount == 0) revert CannotRefundZeroContribution();
 
         // Refund is allowed if:
         // 1. The contract was cancelled.
@@ -133,14 +133,14 @@ contract Aon is Initializable {
         uint256 balance = address(this).balance;
 
         // Optional: Allow refunds during an active, successful campaign if it doesn't drop the total below the goal.
-        if (goalReachedStrategy.isGoalReached() && balance - _refundAmount >= goal) return;
+        if (goalReachedStrategy.isGoalReached() && balance - refundAmount >= goal) return;
 
-        if (goalReachedStrategy.isGoalReached() && balance - _refundAmount < goal) {
-            revert InsufficientBalanceForRefund(balance, _refundAmount, goal);
+        if (goalReachedStrategy.isGoalReached() && balance - refundAmount < goal) {
+            revert InsufficientBalanceForRefund(balance, refundAmount, goal);
         }
     }
 
-    function _canClaim() internal view returns (bool) {
+    function canClaim() internal view returns (bool) {
         if (!isCreator()) revert Unauthorized("Only creator can claim");
         if (isCancelled) revert CannotClaimCancelledContract();
         if (isFailed()) revert CannotClaimFailedContract();
@@ -150,7 +150,7 @@ contract Aon is Initializable {
         return true;
     }
 
-    function _canCancel() internal view returns (bool) {
+    function canCancel() internal view returns (bool) {
         if (isCancelled) revert CannotCancelCancelledContract();
         if (isFinalized()) revert CannotCancelFinalizedContract();
 
@@ -162,7 +162,7 @@ contract Aon is Initializable {
         return true;
     }
 
-    function _canContribute() internal view returns (bool) {
+    function canContribute() internal view returns (bool) {
         if (block.timestamp > endTime()) revert CannotContributeAfterEndTime();
         if (isCancelled) revert CannotContributeToCancelledContract();
         if (isFinalized()) revert CannotContributeToFinalizedContract();
@@ -171,7 +171,7 @@ contract Aon is Initializable {
         return true;
     }
 
-    function _canSwipeFunds() internal view returns (bool) {
+    function canSwipeFunds() internal view returns (bool) {
         if (msg.sender != factory.owner()) revert Unauthorized("Only factory can swipe funds");
 
         /*
@@ -213,7 +213,7 @@ contract Aon is Initializable {
     * EXTERNAL FUNCTIONS
     */
     function contribute() external payable {
-        _canContribute();
+        canContribute();
 
         contributions[msg.sender] += msg.value;
         emit ContributionReceived(msg.sender, msg.value);
@@ -221,7 +221,7 @@ contract Aon is Initializable {
 
     function refund() external {
         uint256 refundAmount = contributions[msg.sender];
-        _canRefund(refundAmount);
+        canRefund(refundAmount);
 
         contributions[msg.sender] = 0;
 
@@ -238,7 +238,7 @@ contract Aon is Initializable {
     }
 
     function claim() external {
-        _canClaim();
+        canClaim();
 
         uint256 claimAmount = address(this).balance;
         (bool success, bytes memory reason) = creator.call{value: claimAmount}("");
@@ -248,13 +248,13 @@ contract Aon is Initializable {
     }
 
     function cancel() external {
-        _canCancel();
+        canCancel();
         isCancelled = true;
         emit Cancelled();
     }
 
     function swipeFunds() public {
-        _canSwipeFunds();
+        canSwipeFunds();
 
         (bool success, bytes memory reason) = factory.owner().call{value: address(this).balance}("");
         require(success, FailedToSwipeFunds(reason));
