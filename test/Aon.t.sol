@@ -63,12 +63,11 @@ contract AonTest is Test {
     function test_Constructor_SetsInitialValues() public view {
         assertEq(aon.creator(), creator, "Creator should be set");
         assertEq(aon.goal(), GOAL, "Goal should be set");
-        assertEq(aon.durationInSeconds(), DURATION, "Duration should be set");
         assertEq(address(aon.factory()), factoryOwner, "Factory owner should be this contract");
         assertEq(
             address(aon.goalReachedStrategy()), address(goalReachedStrategy), "Goal reached strategy should be set"
         );
-        assertGt(aon.startTime(), 0, "Start time should be set");
+        assertTrue(aon.endTime() > block.timestamp, "End time should be in the future");
         assertEq(aon.isCancelled(), false, "Should not be cancelled initially");
     }
 
@@ -143,7 +142,7 @@ contract AonTest is Test {
         vm.warp(aon.endTime() + 1 days);
 
         vm.prank(randomAddress);
-        vm.expectRevert(abi.encodeWithSelector(Aon.Unauthorized.selector, "Only creator can claim"));
+        vm.expectRevert(Aon.OnlyCreatorCanClaim.selector);
         aon.claim();
     }
 
@@ -376,7 +375,7 @@ contract AonTest is Test {
 
     function test_Cancel_FailsIfUnauthorized() public {
         vm.prank(randomAddress);
-        vm.expectRevert(abi.encodeWithSelector(Aon.Unauthorized.selector, "Only factory or creator can cancel"));
+        vm.expectRevert(Aon.OnlyCreatorOrFactoryOwnerCanCancel.selector);
         aon.cancel();
     }
 
@@ -414,7 +413,7 @@ contract AonTest is Test {
 
     function test_SwipeFunds_FailsIfNotFactoryOwner() public {
         vm.prank(randomAddress);
-        vm.expectRevert(abi.encodeWithSelector(Aon.Unauthorized.selector, "Only factory can swipe funds"));
+        vm.expectRevert(Aon.OnlyFactoryCanSwipeFunds.selector);
         aon.swipeFunds();
     }
 

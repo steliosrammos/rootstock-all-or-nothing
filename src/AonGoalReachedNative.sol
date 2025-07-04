@@ -5,13 +5,15 @@ interface IAonGoalReached {
     function isGoalReached() external view returns (bool);
 }
 
-interface IAonForGoalCheck {
+interface IAon {
     function goal() external view returns (uint256);
 }
 
 contract AonGoalReachedNative is IAonGoalReached {
     function isGoalReached() external view returns (bool) {
-        IAonForGoalCheck aon = IAonForGoalCheck(msg.sender);
-        return msg.sender.balance >= aon.goal();
+        // msg.sender should be the Aon contract
+        IAon aonContract = IAon(msg.sender);
+        uint256 goal = aonContract.goal();
+        return msg.sender.balance >= goal;
     }
 }
