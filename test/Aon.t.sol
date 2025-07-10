@@ -11,7 +11,10 @@ contract AonTest is Test {
     AonGoalReachedNative private goalReachedStrategy;
 
     address payable private creator = payable(makeAddr("creator"));
-    address payable private contributor1 = payable(makeAddr("contributor1"));
+
+    address payable private contributor1;
+    uint256 private contributor1PrivateKey;
+
     address payable private contributor2 = payable(makeAddr("contributor2"));
     address private factoryOwner;
     address private randomAddress = makeAddr("random");
@@ -31,6 +34,10 @@ contract AonTest is Test {
     */
 
     function setUp() public {
+        (address _contributor1, uint256 _contributor1PrivateKey) = makeAddrAndKey("contributor1");
+        contributor1 = payable(_contributor1);
+        contributor1PrivateKey = _contributor1PrivateKey;
+
         factoryOwner = address(this);
         goalReachedStrategy = new AonGoalReachedNative();
 
@@ -434,6 +441,114 @@ contract AonTest is Test {
         vm.prank(factoryOwner);
         vm.expectRevert(Aon.NoFundsToSwipe.selector);
         aon.swipeFunds();
+    }
+
+    function test_RefundWithSignature_Success() public {
+        uint256 contributionAmount = 1 ether;
+        vm.prank(contributor1);
+        aon.contribute{value: contributionAmount}();
+
+        // Cancel campaign to allow refunds
+        vm.prank(creator);
+        aon.cancel();
+
+        // Create signature for refund
+        uint256 deadline = block.timestamp + 1 hours;
+        uint256 nonce = aon.nonces(contributor1);
+
+        bytes32 structHash = keccak256(
+            abi.encode(
+                keccak256("Refund(address contributor,uint256 amount,uint256 nonce,uint256 deadline)"),
+                contributor1,
+                contributionAmount,
+                nonce,
+                deadline
+            )
+        );
+
+        bytes32 domainSeparator = aon.domainSeparator();
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
+
+        // Sign the digest with contributor1's private key
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(contributor1PrivateKey, digest);
+
+        uint256 contributorInitialBalance = contributor1.balance;
+
+        // Execute refund with signature
+        vm.expectEmit(true, true, true, true);
+        emit ContributionRefunded(contributor1, contributionAmount);
+        aon.refundWithSignature(contributor1, deadline, v, r, s);
+
+        // Verify refund was successful
+        assertEq(
+            contributor1.balance, contributorInitialBalance + contributionAmount, "Contributor should receive refund"
+        );
+        assertEq(aon.contributions(contributor1), 0, "Contribution should be cleared");
+        assertEq(aon.nonces(contributor1), nonce + 1, "Nonce should be incremented");
+    }
+
+    function test_RefundWithSignature_FailsWithInvalidSignature() public {
+        uint256 contributionAmount = 1 ether;
+        vm.prank(contributor1);
+        aon.contribute{value: contributionAmount}();
+
+        vm.prank(creator);
+        aon.cancel();
+
+        uint256 deadline = block.timestamp + 1 hours;
+        uint256 nonce = aon.nonces(contributor1);
+
+        bytes32 structHash = keccak256(
+            abi.encode(
+                keccak256("Refund(address contributor,uint256 amount,uint256 nonce,uint256 deadline)"),
+                contributor1,
+                contributionAmount,
+                nonce,
+                deadline
+            )
+        );
+
+        bytes32 domainSeparator = aon.domainSeparator();
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
+
+        // Sign with wrong private key (contributor2's key instead of contributor1's)
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(2, digest); // contributor2 uses key index 2
+
+        vm.expectRevert(Aon.InvalidSignature.selector);
+        aon.refundWithSignature(contributor1, deadline, v, r, s);
+    }
+
+    function test_RefundWithSignature_FailsWithExpiredSignature() public {
+        uint256 contributionAmount = 1 ether;
+        vm.prank(contributor1);
+        aon.contribute{value: contributionAmount}();
+
+        vm.prank(creator);
+        aon.cancel();
+
+        uint256 deadline = block.timestamp + 1 hours;
+        uint256 nonce = aon.nonces(contributor1);
+
+        bytes32 structHash = keccak256(
+            abi.encode(
+                keccak256("Refund(address contributor,uint256 amount,uint256 nonce,uint256 deadline)"),
+                contributor1,
+                contributionAmount,
+                nonce,
+                deadline
+            )
+        );
+
+        bytes32 domainSeparator = aon.domainSeparator();
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
+
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(1, digest);
+
+        // Fast-forward past the deadline
+        vm.warp(deadline + 1);
+
+        vm.expectRevert(Aon.SignatureExpired.selector);
+        aon.refundWithSignature(contributor1, deadline, v, r, s);
     }
 }
 

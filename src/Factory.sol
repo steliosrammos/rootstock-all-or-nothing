@@ -23,7 +23,7 @@ contract Factory is Ownable {
         uint256 goalInEther,
         uint256 durationInSeconds,
         address goalReachedStrategy
-    ) external onlyOwner {
+    ) external {
         AonProxy proxy = new AonProxy(implementation);
         Aon(address(proxy)).initialize(creator, goalInEther, durationInSeconds, goalReachedStrategy);
         emit AonCreated(address(proxy));

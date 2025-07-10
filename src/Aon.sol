@@ -3,6 +3,9 @@ pragma solidity ^0.8.30;
 
 import "openzeppelin-contracts/contracts/proxy/utils/Initializable.sol";
 import "./AonGoalReachedNative.sol";
+import "openzeppelin-contracts/contracts/utils/cryptography/ECDSA.sol";
+import "openzeppelin-contracts/contracts/utils/cryptography/MessageHashUtils.sol";
+import "openzeppelin-contracts/contracts/utils/Nonces.sol";
 
 interface IOwnable {
     function owner() external view returns (address);
@@ -19,7 +22,7 @@ interface IOwnable {
     - Successful/Failed: Implicit states, based on the project balance while the project hasn't expired yet.
 */
 
-contract Aon is Initializable {
+contract Aon is Initializable, Nonces {
     /*
     * EVENTS
     */
@@ -65,6 +68,10 @@ contract Aon is Initializable {
     error InsufficientBalanceForRefund(uint256 balance, uint256 refundAmount, uint256 goal);
     error FailedToRefund(bytes reason);
 
+    // EIP-712 / signature errors
+    error InvalidSignature();
+    error SignatureExpired();
+
     // Swipe Funds Errors
     error CannotSwipeFundsInClaimedContract();
     error CannotSwipeFundsInRefundedContract();
@@ -74,6 +81,19 @@ contract Aon is Initializable {
 
     // Constants
     uint256 public constant CLAIM_REFUND_WINDOW_IN_SECONDS = 30 days;
+
+    // ---------------------------------------------------------------------
+    // EIP-712 CONSTANTS & STATE
+    // ---------------------------------------------------------------------
+
+    // solhint-disable-next-line max-line-length
+    bytes32 private constant _EIP712_DOMAIN_TYPEHASH =
+        keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
+    bytes32 private constant _REFUND_TYPEHASH =
+        keccak256("Refund(address contributor,uint256 amount,uint256 nonce,uint256 deadline)");
+
+    // Cached domain separator built in `initialize`
+    bytes32 private _DOMAIN_SEPARATOR;
 
     /*
     * STATE VARIABLES
@@ -103,6 +123,24 @@ contract Aon is Initializable {
         goalReachedStrategy = IAonGoalReached(_goalReachedStrategy);
 
         factory = IOwnable(msg.sender);
+
+        // -----------------------------------------------------------------
+        // Build and cache the EIP-712 domain separator for this contract
+        // -----------------------------------------------------------------
+        _DOMAIN_SEPARATOR = keccak256(
+            abi.encode(
+                _EIP712_DOMAIN_TYPEHASH,
+                keccak256(bytes("Aon")), // Name
+                keccak256(bytes("1")), // Version
+                block.chainid,
+                address(this)
+            )
+        );
+    }
+
+    /// @notice Returns the EIP-712 domain separator used by this contract.
+    function domainSeparator() external view returns (bytes32) {
+        return _DOMAIN_SEPARATOR;
     }
 
     /*
@@ -232,6 +270,55 @@ contract Aon is Initializable {
         }
 
         emit ContributionRefunded(msg.sender, refundAmount);
+    }
+
+    /**
+     * @notice Refund contributions on behalf of a contributor using an EIP-712
+     *         signed message.
+     *
+     * @param contributor The address that originally contributed and signed
+     *                    the permit.
+     * @param deadline    Timestamp after which the signature is no longer
+     *                    valid.
+     * @param v           ECDSA recovery byte.
+     * @param r           ECDSA R value.
+     * @param s           ECDSA S value.
+     */
+    function refundWithSignature(address contributor, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external {
+        if (block.timestamp > deadline) {
+            revert SignatureExpired();
+        }
+
+        uint256 refundAmount = contributions[contributor];
+        canRefund(refundAmount);
+
+        // -----------------------------------------------------------------
+        // Verify EIP-712 signature
+        // -----------------------------------------------------------------
+        uint256 nonce = nonces(contributor);
+        bytes32 structHash = keccak256(abi.encode(_REFUND_TYPEHASH, contributor, refundAmount, nonce, deadline));
+
+        bytes32 digest = MessageHashUtils.toTypedDataHash(_DOMAIN_SEPARATOR, structHash);
+        address signer = ECDSA.recover(digest, v, r, s);
+
+        if (signer != contributor) {
+            revert InvalidSignature();
+        }
+
+        // Consume nonce to prevent replay
+        _useNonce(contributor);
+
+        // -----------------------------------------------------------------
+        // Execute refund
+        // -----------------------------------------------------------------
+        contributions[contributor] = 0;
+
+        (bool success, bytes memory reason) = contributor.call{value: refundAmount}("");
+        if (!success) {
+            revert FailedToRefund(reason);
+        }
+
+        emit ContributionRefunded(contributor, refundAmount);
     }
 
     function claim() external {
