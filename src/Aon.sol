@@ -112,7 +112,8 @@ contract Aon is Initializable {
         return (address(this).balance == 0 && block.timestamp > (endTime + CLAIM_REFUND_WINDOW_IN_SECONDS * 2));
     }
 
-    function canRefund(uint256 refundAmount) internal view {
+    function canRefund(address contributor) public view returns (uint256) {
+        uint256 refundAmount = contributions[contributor];
         if (refundAmount == 0) revert CannotRefundZeroContribution();
 
         // Refund is allowed if:
@@ -121,21 +122,20 @@ contract Aon is Initializable {
         // 3. The campaign was successful, but the creator failed to claim in time.
         // TODO: add a test for the isGoalReached() case
         if (isCancelled || isFailed() || isUnclaimed() || !goalReachedStrategy.isGoalReached()) {
-            return;
+            return refundAmount;
         }
 
         uint256 balance = address(this).balance;
 
-        // Optional: Allow refunds during an active, successful campaign if it doesn't drop the total below the goal.
-        if (goalReachedStrategy.isGoalReached() && balance - refundAmount >= goal) return;
-
         if (goalReachedStrategy.isGoalReached() && balance - refundAmount < goal) {
             revert InsufficientBalanceForRefund(balance, refundAmount, goal);
         }
+
+        return refundAmount;
     }
 
-    function canClaim() internal view returns (bool) {
-        if (!isCreator()) revert OnlyCreatorCanClaim();
+    function canClaim(address _address) public view returns (bool) {
+        if (!isCreator(_address)) revert OnlyCreatorCanClaim();
         if (isCancelled) revert CannotClaimCancelledContract();
         if (isFailed()) revert CannotClaimFailedContract();
         if (isUnclaimed()) revert CannotClaimUnclaimedContract();
@@ -144,33 +144,28 @@ contract Aon is Initializable {
         return true;
     }
 
-    function canCancel() internal view returns (bool) {
+    function canCancel() public view returns (bool) {
         if (isCancelled) revert CannotCancelCancelledContract();
         if (isFinalized()) revert CannotCancelFinalizedContract();
 
         bool isFactoryCall = msg.sender == factory.owner();
-        bool isCreatorCall = isCreator();
+        bool isCreatorCall = isCreator(msg.sender);
 
         if (!isFactoryCall && !isCreatorCall) revert OnlyCreatorOrFactoryOwnerCanCancel();
 
         return true;
     }
 
-    function canContribute() internal view returns (bool) {
+    function canContribute(uint256 _amount) public view returns (bool) {
         if (block.timestamp > endTime) revert CannotContributeAfterEndTime();
         if (isCancelled) revert CannotContributeToCancelledContract();
         if (isFinalized()) revert CannotContributeToFinalizedContract();
-        if (msg.value == 0) revert InvalidContribution();
-        /*
-         TODO: should we disallow contributions after the creator has claimed the funds if they claim early?
-         How do we derive the isClaimed state? 
-         Can we find out if the creator has claimed the funds through outgoing txs?
-        */
+        if (_amount == 0) revert InvalidContribution();
 
         return true;
     }
 
-    function canSwipeFunds() internal view returns (bool) {
+    function canSwipeFunds() public view returns (bool) {
         if (msg.sender != factory.owner()) revert OnlyFactoryCanSwipeFunds();
 
         /*
@@ -204,15 +199,15 @@ contract Aon is Initializable {
         return (!isCancelled && block.timestamp > endTime && goalReachedStrategy.isGoalReached());
     }
 
-    function isCreator() internal view returns (bool) {
-        return msg.sender == creator;
+    function isCreator(address _address) internal view returns (bool) {
+        return _address == creator;
     }
 
     /*
     * EXTERNAL FUNCTIONS
     */
     function contribute() external payable {
-        canContribute();
+        canContribute(msg.value);
 
         // TODO: change the ,msg sender to some reference of the contributor address (passed in the call data?)
         contributions[msg.sender] += msg.value;
@@ -220,8 +215,7 @@ contract Aon is Initializable {
     }
 
     function refund() external {
-        uint256 refundAmount = contributions[msg.sender];
-        canRefund(refundAmount);
+        uint256 refundAmount = canRefund(msg.sender);
 
         contributions[msg.sender] = 0;
 
@@ -235,7 +229,7 @@ contract Aon is Initializable {
     }
 
     function claim() external {
-        canClaim();
+        canClaim(msg.sender);
 
         uint256 claimAmount = address(this).balance;
         (bool success, bytes memory reason) = creator.call{value: claimAmount}("");
