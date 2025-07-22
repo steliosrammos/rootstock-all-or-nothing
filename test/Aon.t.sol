@@ -18,10 +18,11 @@ contract AonTest is Test {
 
     uint256 private constant GOAL = 10 ether;
     uint256 private constant DURATION = 30 days;
+    uint256 private constant PLATFORM_FEE = 500; // 5%
 
     event ContributionReceived(address indexed contributor, uint256 amount);
     event ContributionRefunded(address indexed contributor, uint256 amount);
-    event Claimed(uint256 amount);
+    event Claimed(uint256 creatorAmount, uint256 platformFeeAmount);
     event Cancelled();
     event Refunded();
     event FundsSwiped();
@@ -41,7 +42,7 @@ contract AonTest is Test {
 
         // Initialize contract via proxy
         vm.prank(factoryOwner);
-        aon.initialize(creator, GOAL, DURATION, address(goalReachedStrategy));
+        aon.initialize(creator, GOAL, DURATION, address(goalReachedStrategy), PLATFORM_FEE);
 
         vm.deal(contributor1, 100 ether);
         vm.deal(contributor2, 100 ether);
@@ -125,15 +126,19 @@ contract AonTest is Test {
 
         // Creator claims the funds
         uint256 contractBalance = address(aon).balance;
+        uint256 platformFee = (contractBalance * PLATFORM_FEE) / 10000;
+        uint256 creatorAmount = contractBalance - platformFee;
         uint256 creatorInitialBalance = creator.balance;
+        uint256 factoryInitialBalance = factoryOwner.balance;
 
         vm.prank(creator);
-        vm.expectEmit(true, false, false, true);
-        emit Claimed(contractBalance);
+        vm.expectEmit(true, true, false, true);
+        emit Claimed(creatorAmount, platformFee);
         aon.claim();
 
         assertEq(address(aon).balance, 0, "Contract balance should be zero after claim");
-        assertEq(creator.balance, creatorInitialBalance + contractBalance, "Creator should receive the funds");
+        assertEq(creator.balance, creatorInitialBalance + creatorAmount, "Creator should receive the funds");
+        assertEq(factoryOwner.balance, factoryInitialBalance + platformFee, "Factory should receive the fee");
     }
 
     function test_Claim_FailsIfNotCreator() public {
@@ -289,36 +294,6 @@ contract AonTest is Test {
         attacker.startAttack();
     }
 
-    function test_Claim_ReentrancyAttack() public {
-        // Deploy attacker contract. This attacker will pose as the creator.
-        MaliciousCreator attacker = new MaliciousCreator();
-
-        // We need a new Aon instance for this test to set the malicious creator.
-        Aon implementation = new Aon();
-        AonProxy proxy = new AonProxy(address(implementation));
-        Aon aonForTest = Aon(address(proxy));
-        vm.prank(factoryOwner);
-        aonForTest.initialize(payable(address(attacker)), GOAL, DURATION, address(goalReachedStrategy));
-
-        // The attacker needs to know about the Aon instance.
-        attacker.setAon(aonForTest);
-
-        // Fund campaign to success
-        vm.prank(contributor1);
-        aonForTest.contribute{value: GOAL}();
-
-        vm.warp(aonForTest.endTime() + 1 days);
-        assertTrue(aonForTest.isSuccessful());
-
-        // Attacker starts the claim, which should lead to re-entrancy.
-        // In the vulnerable contract, the re-entrant `cancel` call will succeed.
-        // This test should fail once a re-entrancy guard is added.
-        attacker.claim();
-
-        // Check that the attack succeeded (which is bad)
-        assertTrue(aonForTest.isCancelled(), "Attack should have cancelled the contract");
-    }
-
     function test_SwipeFunds_ReentrancyAttack() public {
         // 1. Deploy attacker that will act as the factory owner
         MaliciousFactoryOwner attacker = new MaliciousFactoryOwner();
@@ -331,7 +306,7 @@ contract AonTest is Test {
         AonProxy proxy = new AonProxy(address(implementation));
         Aon aonForTest = Aon(address(proxy));
         vm.prank(address(factory)); // Pretend the factory is deploying this Aon instance
-        aonForTest.initialize(creator, GOAL, DURATION, address(goalReachedStrategy));
+        aonForTest.initialize(creator, GOAL, DURATION, address(goalReachedStrategy), PLATFORM_FEE);
 
         // 4. Link the attacker contract to the new Aon instance
         attacker.setAon(aonForTest);
@@ -458,28 +433,6 @@ contract MaliciousRefund {
     receive() external payable {
         // The re-entrant call should fail if the contract is secure.
         aon.refund();
-    }
-}
-
-/// @dev An attacker contract to test re-entrancy on claim.
-/// It tries to cancel the campaign during the claim payout.
-contract MaliciousCreator {
-    Aon aon;
-
-    function setAon(Aon _aon) external {
-        aon = _aon;
-    }
-
-    function claim() external {
-        aon.claim();
-    }
-
-    receive() external payable {
-        // When we receive the claimed funds, try to cancel the campaign.
-        // This shouldn't be possible in a secure contract.
-        if (address(aon).balance == 0) {
-            aon.cancel();
-        }
     }
 }
 

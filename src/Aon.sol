@@ -24,7 +24,7 @@ contract Aon is Initializable {
     * EVENTS
     */
     // Contract events
-    event Claimed(uint256 amount);
+    event Claimed(uint256 creatorAmount, uint256 platformFeeAmount);
     event Cancelled();
     event FundsSwiped();
 
@@ -36,6 +36,7 @@ contract Aon is Initializable {
     error GoalReachedAlready();
     error InvalidContribution();
     error FailedToSwipeFunds(bytes reason);
+    error AlreadyClaimed();
 
     /*
     * STATE ERRORS
@@ -56,6 +57,7 @@ contract Aon is Initializable {
     error CannotClaimUnclaimedContract();
     error OnlyCreatorCanClaim();
     error FailedToSendFundsInClaim(bytes reason);
+    error FailedToSendPlatformFee(bytes reason);
 
     // Refund Errors
     error CannotRefundNonActiveContract();
@@ -82,7 +84,9 @@ contract Aon is Initializable {
     address payable public creator;
     uint256 public goal;
     uint256 public endTime;
+    uint256 public platformFeeInBasisPoints;
     bool public isCancelled = false;
+    bool public isClaimed = false;
     mapping(address => uint256) public contributions;
     IAonGoalReached public goalReachedStrategy;
 
@@ -95,13 +99,14 @@ contract Aon is Initializable {
         address payable _creator,
         uint256 _goal,
         uint256 _durationInSeconds,
-        address _goalReachedStrategy
+        address _goalReachedStrategy,
+        uint256 _platformFeeInBasisPoints
     ) public initializer {
         creator = _creator;
         goal = _goal;
         endTime = block.timestamp + _durationInSeconds;
         goalReachedStrategy = IAonGoalReached(_goalReachedStrategy);
-
+        platformFeeInBasisPoints = _platformFeeInBasisPoints;
         factory = IOwnable(msg.sender);
     }
 
@@ -116,25 +121,25 @@ contract Aon is Initializable {
         uint256 refundAmount = contributions[contributor];
         if (refundAmount == 0) revert CannotRefundZeroContribution();
 
-        // Refund is allowed if:
-        // 1. The contract was cancelled.
-        // 2. The campaign ended and failed to meet its goal.
-        // 3. The campaign was successful, but the creator failed to claim in time.
-        // TODO: add a test for the isGoalReached() case
-        if (isCancelled || isFailed() || isUnclaimed() || !goalReachedStrategy.isGoalReached()) {
-            return refundAmount;
-        }
-
         uint256 balance = address(this).balance;
 
-        if (goalReachedStrategy.isGoalReached() && balance - refundAmount < goal) {
+        if (goalReachedStrategy.isGoalReached() && !isUnclaimed() && balance - refundAmount < goal) {
             revert InsufficientBalanceForRefund(balance, refundAmount, goal);
         }
 
-        return refundAmount;
+        if (isCancelled || isFailed() || isUnclaimed()) {
+            return refundAmount;
+        }
+
+        if (!goalReachedStrategy.isGoalReached()) {
+            return refundAmount;
+        }
+
+        return 0;
     }
 
     function canClaim(address _address) public view returns (bool) {
+        if (isClaimed) revert AlreadyClaimed();
         if (!isCreator(_address)) revert OnlyCreatorCanClaim();
         if (isCancelled) revert CannotClaimCancelledContract();
         if (isFailed()) revert CannotClaimFailedContract();
@@ -145,6 +150,7 @@ contract Aon is Initializable {
     }
 
     function canCancel() public view returns (bool) {
+        if (isClaimed) revert AlreadyClaimed();
         if (isCancelled) revert CannotCancelCancelledContract();
         if (isFinalized()) revert CannotCancelFinalizedContract();
 
@@ -231,11 +237,25 @@ contract Aon is Initializable {
     function claim() external {
         canClaim(msg.sender);
 
-        uint256 claimAmount = address(this).balance;
-        (bool success, bytes memory reason) = creator.call{value: claimAmount}("");
-        require(success, FailedToSendFundsInClaim(reason));
+        uint256 totalBalance = address(this).balance;
+        uint256 platformFee = (totalBalance * platformFeeInBasisPoints) / 10000;
+        uint256 creatorAmount = totalBalance - platformFee;
 
-        emit Claimed(claimAmount);
+        if (platformFee > 0) {
+            (bool success, bytes memory reason) = factory.owner().call{value: platformFee}("");
+            if (!success) {
+                revert FailedToSendPlatformFee(reason);
+            }
+        }
+
+        if (creatorAmount > 0) {
+            (bool success, bytes memory reason) = creator.call{value: creatorAmount}("");
+            if (!success) {
+                revert FailedToSendFundsInClaim(reason);
+            }
+        }
+
+        emit Claimed(creatorAmount, platformFee);
     }
 
     function cancel() external {
