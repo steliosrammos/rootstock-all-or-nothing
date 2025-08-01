@@ -84,7 +84,7 @@ contract Aon is Initializable {
     address payable public creator;
     uint256 public goal;
     uint256 public endTime;
-    uint256 public platformFeeInBasisPoints;
+    uint256 public totalFee;
     bool public isCancelled = false;
     bool public isClaimed = false;
     mapping(address => uint256) public contributions;
@@ -99,14 +99,12 @@ contract Aon is Initializable {
         address payable _creator,
         uint256 _goal,
         uint256 _durationInSeconds,
-        address _goalReachedStrategy,
-        uint256 _platformFeeInBasisPoints
+        address _goalReachedStrategy
     ) public initializer {
         creator = _creator;
         goal = _goal;
         endTime = block.timestamp + _durationInSeconds;
         goalReachedStrategy = IAonGoalReached(_goalReachedStrategy);
-        platformFeeInBasisPoints = _platformFeeInBasisPoints;
         factory = IOwnable(msg.sender);
     }
 
@@ -138,7 +136,7 @@ contract Aon is Initializable {
         return 0;
     }
 
-    function canClaim(address _address) public view returns (bool) {
+    function canClaim(address _address) public view returns (uint256, uint256) {
         if (isClaimed) revert AlreadyClaimed();
         if (!isCreator(_address)) revert OnlyCreatorCanClaim();
         if (isCancelled) revert CannotClaimCancelledContract();
@@ -146,7 +144,7 @@ contract Aon is Initializable {
         if (isUnclaimed()) revert CannotClaimUnclaimedContract();
         if (!goalReachedStrategy.isGoalReached()) revert GoalNotReached();
 
-        return true;
+        return (address(this).balance - totalFee, totalFee);
     }
 
     function canCancel() public view returns (bool) {
@@ -212,11 +210,12 @@ contract Aon is Initializable {
     /*
     * EXTERNAL FUNCTIONS
     */
-    function contribute() external payable {
+    function contribute(uint256 fee) external payable {
         canContribute(msg.value);
 
         // TODO: change the ,msg sender to some reference of the contributor address (passed in the call data?)
         contributions[msg.sender] += msg.value;
+        totalFee += fee;
         emit ContributionReceived(msg.sender, msg.value);
     }
 
@@ -235,14 +234,10 @@ contract Aon is Initializable {
     }
 
     function claim() external {
-        canClaim(msg.sender);
+        (uint256 creatorAmount, uint256 _totalFee) = canClaim(msg.sender);
 
-        uint256 totalBalance = address(this).balance;
-        uint256 platformFee = (totalBalance * platformFeeInBasisPoints) / 10000;
-        uint256 creatorAmount = totalBalance - platformFee;
-
-        if (platformFee > 0) {
-            (bool success, bytes memory reason) = factory.owner().call{value: platformFee}("");
+        if (_totalFee > 0) {
+            (bool success, bytes memory reason) = factory.owner().call{value: _totalFee}("");
             if (!success) {
                 revert FailedToSendPlatformFee(reason);
             }
@@ -255,7 +250,7 @@ contract Aon is Initializable {
             }
         }
 
-        emit Claimed(creatorAmount, platformFee);
+        emit Claimed(creatorAmount, _totalFee);
     }
 
     function cancel() external {

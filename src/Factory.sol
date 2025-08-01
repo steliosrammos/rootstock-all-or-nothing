@@ -22,13 +22,10 @@ contract Factory is Ownable {
         address payable creator,
         uint256 goalInEther,
         uint256 durationInSeconds,
-        address goalReachedStrategy,
-        uint256 platformFeeInBasisPoints
-    ) external onlyOwner {
+        address goalReachedStrategy
+    ) external {
         AonProxy proxy = new AonProxy(implementation);
-        Aon(address(proxy)).initialize(
-            creator, goalInEther, durationInSeconds, goalReachedStrategy, platformFeeInBasisPoints
-        );
+        Aon(address(proxy)).initialize(creator, goalInEther, durationInSeconds, goalReachedStrategy);
         emit AonCreated(address(proxy));
     }
 }

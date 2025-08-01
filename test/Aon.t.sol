@@ -18,11 +18,10 @@ contract AonTest is Test {
 
     uint256 private constant GOAL = 10 ether;
     uint256 private constant DURATION = 30 days;
-    uint256 private constant PLATFORM_FEE = 500; // 5%
 
     event ContributionReceived(address indexed contributor, uint256 amount);
     event ContributionRefunded(address indexed contributor, uint256 amount);
-    event Claimed(uint256 creatorAmount, uint256 platformFeeAmount);
+    event Claimed(uint256 creatorAmount, uint256 totalFee);
     event Cancelled();
     event Refunded();
     event FundsSwiped();
@@ -42,7 +41,7 @@ contract AonTest is Test {
 
         // Initialize contract via proxy
         vm.prank(factoryOwner);
-        aon.initialize(creator, GOAL, DURATION, address(goalReachedStrategy), PLATFORM_FEE);
+        aon.initialize(creator, GOAL, DURATION, address(goalReachedStrategy));
 
         vm.deal(contributor1, 100 ether);
         vm.deal(contributor2, 100 ether);
@@ -81,7 +80,7 @@ contract AonTest is Test {
         vm.prank(contributor1);
         vm.expectEmit(true, true, true, true);
         emit ContributionReceived(contributor1, contributionAmount);
-        aon.contribute{value: contributionAmount}();
+        aon.contribute{value: contributionAmount}(0);
 
         assertEq(address(aon).balance, contributionAmount, "Contract balance should increase");
         assertEq(aon.contributions(contributor1), contributionAmount, "Contributor's balance should be recorded");
@@ -90,14 +89,14 @@ contract AonTest is Test {
     function test_Contribute_FailsIfZeroAmount() public {
         vm.prank(contributor1);
         vm.expectRevert(Aon.InvalidContribution.selector);
-        aon.contribute{value: 0}();
+        aon.contribute{value: 0}(0);
     }
 
     function test_Contribute_FailsIfAfterEndTime() public {
         vm.warp(aon.endTime() + 1 days);
         vm.prank(contributor1);
         vm.expectRevert(Aon.CannotContributeAfterEndTime.selector);
-        aon.contribute{value: 1 ether}();
+        aon.contribute{value: 1 ether}(0);
     }
 
     function test_Contribute_FailsIfCancelled() public {
@@ -106,7 +105,7 @@ contract AonTest is Test {
 
         vm.prank(contributor1);
         vm.expectRevert(Aon.CannotContributeToCancelledContract.selector);
-        aon.contribute{value: 1 ether}();
+        aon.contribute{value: 1 ether}(0);
     }
 
     /*
@@ -116,9 +115,9 @@ contract AonTest is Test {
     function test_Claim_Success() public {
         // Contributors meet the goal
         vm.prank(contributor1);
-        aon.contribute{value: 5 ether}();
+        aon.contribute{value: 5 ether}(0);
         vm.prank(contributor2);
-        aon.contribute{value: 5 ether}();
+        aon.contribute{value: 5 ether}(0);
 
         // Fast-forward past the end time
         vm.warp(aon.endTime() + 1 days);
@@ -126,24 +125,24 @@ contract AonTest is Test {
 
         // Creator claims the funds
         uint256 contractBalance = address(aon).balance;
-        uint256 platformFee = (contractBalance * PLATFORM_FEE) / 10000;
-        uint256 creatorAmount = contractBalance - platformFee;
+        uint256 totalFee = aon.totalFee();
+        uint256 creatorAmount = contractBalance - totalFee;
         uint256 creatorInitialBalance = creator.balance;
         uint256 factoryInitialBalance = factoryOwner.balance;
 
         vm.prank(creator);
         vm.expectEmit(true, true, false, true);
-        emit Claimed(creatorAmount, platformFee);
+        emit Claimed(creatorAmount, totalFee);
         aon.claim();
 
         assertEq(address(aon).balance, 0, "Contract balance should be zero after claim");
         assertEq(creator.balance, creatorInitialBalance + creatorAmount, "Creator should receive the funds");
-        assertEq(factoryOwner.balance, factoryInitialBalance + platformFee, "Factory should receive the fee");
+        assertEq(factoryOwner.balance, factoryInitialBalance + totalFee, "Factory should receive the fee");
     }
 
     function test_Claim_FailsIfNotCreator() public {
         vm.prank(contributor1);
-        aon.contribute{value: GOAL}();
+        aon.contribute{value: GOAL}(0);
         vm.warp(aon.endTime() + 1 days);
 
         vm.prank(randomAddress);
@@ -153,7 +152,7 @@ contract AonTest is Test {
 
     function test_Claim_FailsIfGoalNotReached() public {
         vm.prank(contributor1);
-        aon.contribute{value: GOAL - 1 ether}();
+        aon.contribute{value: GOAL - 1 ether}(0);
         vm.warp(aon.endTime() - 1 days);
 
         vm.prank(creator);
@@ -163,7 +162,7 @@ contract AonTest is Test {
 
     function test_Claim_FailsIfCampaignFailed() public {
         vm.prank(contributor1);
-        aon.contribute{value: 1 ether}(); // Goal not reached
+        aon.contribute{value: 1 ether}(0); // Goal not reached
 
         vm.warp(aon.endTime() + 1 days);
         assertTrue(aon.isFailed(), "Campaign should have failed");
@@ -175,7 +174,7 @@ contract AonTest is Test {
 
     function test_Claim_FailsIfCancelled() public {
         vm.prank(contributor1);
-        aon.contribute{value: GOAL}();
+        aon.contribute{value: GOAL}(0);
         vm.prank(creator);
         aon.cancel();
 
@@ -191,7 +190,7 @@ contract AonTest is Test {
     function test_Refund_SuccessIfCampaignFailed() public {
         uint256 contributionAmount = 1 ether;
         vm.prank(contributor1);
-        aon.contribute{value: contributionAmount}();
+        aon.contribute{value: contributionAmount}(0);
 
         vm.warp(aon.endTime() + 1 days); // Let campaign fail
         assertTrue(aon.isFailed(), "Campaign should have failed");
@@ -211,7 +210,7 @@ contract AonTest is Test {
     function test_Refund_SuccessIfCancelled() public {
         uint256 contributionAmount = 1 ether;
         vm.prank(contributor1);
-        aon.contribute{value: contributionAmount}();
+        aon.contribute{value: contributionAmount}(0);
 
         vm.prank(creator);
         aon.cancel();
@@ -227,7 +226,7 @@ contract AonTest is Test {
     function test_Refund_SuccessIfUnclaimed() public {
         uint256 contributionAmount = GOAL;
         vm.prank(contributor1);
-        aon.contribute{value: contributionAmount}();
+        aon.contribute{value: contributionAmount}(0);
 
         // Fast-forward past claim window
         vm.warp(aon.endTime() + aon.CLAIM_REFUND_WINDOW_IN_SECONDS() + 1 days);
@@ -253,11 +252,11 @@ contract AonTest is Test {
     function test_Refund_FailsIfItDropsBalanceBelowGoal() public {
         vm.prank(contributor1);
         uint256 contributionAmount = GOAL;
-        aon.contribute{value: contributionAmount}(); // Exactly meets goal
+        aon.contribute{value: contributionAmount}(0); // Exactly meets goal
 
         // Another contribution
         vm.prank(contributor2);
-        aon.contribute{value: 1 ether}();
+        aon.contribute{value: 1 ether}(0);
 
         // Contributor 1 cannot refund because it would bring balance below goal
         vm.prank(contributor1);
@@ -279,7 +278,7 @@ contract AonTest is Test {
         vm.deal(address(attacker), 1 ether);
 
         // Attacker contributes
-        attacker.contribute{value: 1 ether}();
+        attacker.contribute{value: 1 ether}(0);
         assertEq(aon.contributions(address(attacker)), 1 ether);
 
         // Cancel campaign to allow refunds
@@ -306,14 +305,14 @@ contract AonTest is Test {
         AonProxy proxy = new AonProxy(address(implementation));
         Aon aonForTest = Aon(address(proxy));
         vm.prank(address(factory)); // Pretend the factory is deploying this Aon instance
-        aonForTest.initialize(creator, GOAL, DURATION, address(goalReachedStrategy), PLATFORM_FEE);
+        aonForTest.initialize(creator, GOAL, DURATION, address(goalReachedStrategy));
 
         // 4. Link the attacker contract to the new Aon instance
         attacker.setAon(aonForTest);
 
         // 5. Fund the campaign and let it run its course until funds are swipe-able
         vm.prank(contributor1);
-        aonForTest.contribute{value: 1 ether}();
+        aonForTest.contribute{value: 1 ether}(0);
         vm.warp(aonForTest.endTime() + (aonForTest.CLAIM_REFUND_WINDOW_IN_SECONDS() * 2) + 1 days);
 
         // 6. Attacker tries to swipe funds, which triggers a re-entrant call.
@@ -369,7 +368,7 @@ contract AonTest is Test {
 
     function test_SwipeFunds_Success() public {
         vm.prank(contributor1);
-        aon.contribute{value: 1 ether}();
+        aon.contribute{value: 1 ether}(0);
 
         // Fast-forward past all windows
         vm.warp(aon.endTime() + (aon.CLAIM_REFUND_WINDOW_IN_SECONDS() * 2) + 1 days);
@@ -394,7 +393,7 @@ contract AonTest is Test {
 
     function test_SwipeFunds_FailsIfWindowNotOver() public {
         vm.prank(contributor1);
-        aon.contribute{value: 1 ether}();
+        aon.contribute{value: 1 ether}(0);
         vm.warp(aon.endTime());
 
         vm.prank(factoryOwner);
@@ -420,8 +419,8 @@ contract MaliciousRefund {
         aon = _aon;
     }
 
-    function contribute() external payable {
-        aon.contribute{value: msg.value}();
+    function contribute(uint256 fee) external payable {
+        aon.contribute{value: msg.value}(fee);
     }
 
     function startAttack() external {
