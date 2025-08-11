@@ -177,6 +177,8 @@ contract Aon is Initializable, Nonces {
         uint256 refundAmount = contributions[contributor];
         if (refundAmount == 0) revert CannotRefundZeroContribution();
 
+        if (isClaimed()) revert CannotRefundClaimedContract();
+
         uint256 balance = address(this).balance;
 
         if (goalReachedStrategy.isGoalReached() && !isUnclaimed() && balance - refundAmount < goal) {
@@ -194,7 +196,7 @@ contract Aon is Initializable, Nonces {
         return 0;
     }
 
-    function canClaim(address _address) public view returns (bool) {
+    function canClaim(address _address) public view returns (uint256, uint256) {
         if (!isCreator(_address)) revert OnlyCreatorCanClaim();
         if (isCancelled()) revert CannotClaimCancelledContract();
         if (isClaimed()) revert AlreadyClaimed();
@@ -202,10 +204,10 @@ contract Aon is Initializable, Nonces {
         if (isUnclaimed()) revert CannotClaimUnclaimedContract();
         if (!goalReachedStrategy.isGoalReached()) revert GoalNotReached();
 
-        return true;
+        return (address(this).balance - totalFee, totalFee);
     }
 
-    function canClaimWithSignature() internal view returns (bool) {
+    function canClaimWithSignature() internal view returns (uint256, uint256) {
         // Skip isCreator() check - identity verified through signature
         if (isCancelled()) revert CannotClaimCancelledContract();
         if (isClaimed()) revert CannotClaimClaimedContract();
@@ -413,7 +415,7 @@ contract Aon is Initializable, Nonces {
             revert SignatureExpired();
         }
 
-        canClaimWithSignature();
+        (uint256 creatorAmount, uint256 _totalFee) = canClaimWithSignature();
         uint256 totalBalance = address(this).balance;
 
         // -----------------------------------------------------------------
@@ -438,11 +440,8 @@ contract Aon is Initializable, Nonces {
         // -----------------------------------------------------------------
         status = Status.Claimed;
 
-        uint256 platformFee = (totalBalance * platformFeeInBasisPoints) / 10000;
-        uint256 creatorAmount = totalBalance - platformFee;
-
-        if (platformFee > 0) {
-            (bool success, bytes memory reason) = factory.owner().call{value: platformFee}("");
+        if (_totalFee > 0) {
+            (bool success, bytes memory reason) = factory.owner().call{value: _totalFee}("");
             if (!success) {
                 revert FailedToSendPlatformFee(reason);
             }
@@ -455,7 +454,7 @@ contract Aon is Initializable, Nonces {
             }
         }
 
-        emit Claimed(creatorAmount, platformFee);
+        emit Claimed(creatorAmount, _totalFee);
     }
 
     function cancel() external {

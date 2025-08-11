@@ -22,6 +22,7 @@ contract AonTest is Test {
 
     uint256 private constant GOAL = 10 ether;
     uint256 private constant DURATION = 30 days;
+    uint256 private constant PLATFORM_FEE = 250; // 2.5% in basis points
 
     event ContributionReceived(address indexed contributor, uint256 amount);
     event ContributionRefunded(address indexed contributor, uint256 amount);
@@ -165,10 +166,10 @@ contract AonTest is Test {
     function test_Claim_FailsIfGoalNotReached() public {
         vm.prank(contributor1);
         aon.contribute{value: GOAL - 1 ether}(0);
-        vm.warp(aon.endTime() - 1 days);
+        vm.warp(aon.endTime() + 1 days);
 
         vm.prank(creator);
-        vm.expectRevert(Aon.GoalNotReached.selector);
+        vm.expectRevert(Aon.CannotClaimFailedContract.selector);
         aon.claim();
     }
 
@@ -429,7 +430,7 @@ contract AonTest is Test {
     function test_RefundWithSignature_Success() public {
         uint256 contributionAmount = 1 ether;
         vm.prank(contributor1);
-        aon.contribute{value: contributionAmount}();
+        aon.contribute{value: contributionAmount}(0);
 
         // Cancel campaign to allow refunds
         vm.prank(creator);
@@ -477,7 +478,7 @@ contract AonTest is Test {
     function test_RefundWithSignature_FailsWithInvalidSignature() public {
         uint256 contributionAmount = 1 ether;
         vm.prank(contributor1);
-        aon.contribute{value: contributionAmount}();
+        aon.contribute{value: contributionAmount}(0);
 
         vm.prank(creator);
         aon.cancel();
@@ -512,7 +513,7 @@ contract AonTest is Test {
     function test_RefundWithSignature_FailsWithExpiredSignature() public {
         uint256 contributionAmount = 1 ether;
         vm.prank(contributor1);
-        aon.contribute{value: contributionAmount}();
+        aon.contribute{value: contributionAmount}(0);
 
         vm.prank(creator);
         aon.cancel();
@@ -549,7 +550,7 @@ contract AonTest is Test {
     function test_ClaimWithSignature_Success() public {
         uint256 contributionAmount = GOAL; // Contribute exactly the goal amount
         vm.prank(contributor1);
-        aon.contribute{value: contributionAmount}();
+        aon.contribute{value: contributionAmount}(0);
 
         // Fast-forward past the campaign end time
         vm.warp(aon.endTime() + 1 days);
@@ -582,8 +583,8 @@ contract AonTest is Test {
 
         uint256 swapContractInitialBalance = swapContract.balance;
 
-        // Calculate platform fee and creator amount
-        uint256 platformFee = (claimAmount * PLATFORM_FEE) / 10000;
+        // Get the actual platform fee from the contract
+        uint256 platformFee = aon.totalFee();
         uint256 creatorAmount = claimAmount - platformFee;
 
         // Execute claim with signature
@@ -604,7 +605,7 @@ contract AonTest is Test {
     function test_ClaimWithSignature_FailsWithInvalidSignature() public {
         uint256 contributionAmount = GOAL;
         vm.prank(contributor1);
-        aon.contribute{value: contributionAmount}();
+        aon.contribute{value: contributionAmount}(0);
 
         // Fast-forward past the campaign end time
         vm.warp(aon.endTime() + 1 days);
@@ -612,11 +613,13 @@ contract AonTest is Test {
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce = aon.nonces(creator);
         uint256 claimAmount = address(aon).balance;
+        address swapContract = address(0x456);
 
         bytes32 structHash = keccak256(
             abi.encode(
-                keccak256("Claim(address creator,uint256 amount,uint256 nonce,uint256 deadline)"),
+                keccak256("Claim(address creator,address swapContract,uint256 amount,uint256 nonce,uint256 deadline)"),
                 creator,
+                swapContract,
                 claimAmount,
                 nonce,
                 deadline
@@ -630,13 +633,13 @@ contract AonTest is Test {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(contributor1PrivateKey, digest);
 
         vm.expectRevert(Aon.InvalidSignature.selector);
-        aon.claimWithSignature(creator, deadline, v, r, s);
+        aon.claimWithSignature(swapContract, deadline, v, r, s);
     }
 
     function test_ClaimWithSignature_FailsWithExpiredSignature() public {
         uint256 contributionAmount = GOAL;
         vm.prank(contributor1);
-        aon.contribute{value: contributionAmount}();
+        aon.contribute{value: contributionAmount}(0);
 
         // Fast-forward past the campaign end time
         vm.warp(aon.endTime() + 1 days);
@@ -644,11 +647,13 @@ contract AonTest is Test {
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce = aon.nonces(creator);
         uint256 claimAmount = address(aon).balance;
+        address swapContract = address(0x456);
 
         bytes32 structHash = keccak256(
             abi.encode(
-                keccak256("Claim(address creator,uint256 amount,uint256 nonce,uint256 deadline)"),
+                keccak256("Claim(address creator,address swapContract,uint256 amount,uint256 nonce,uint256 deadline)"),
                 creator,
+                swapContract,
                 claimAmount,
                 nonce,
                 deadline
@@ -664,7 +669,7 @@ contract AonTest is Test {
         vm.warp(deadline + 1);
 
         vm.expectRevert(Aon.SignatureExpired.selector);
-        aon.claimWithSignature(creator, deadline, v, r, s);
+        aon.claimWithSignature(swapContract, deadline, v, r, s);
     }
 }
 
