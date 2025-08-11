@@ -64,3 +64,11 @@ $ forge --help
 $ anvil --help
 $ cast --help
 ```
+
+
+
+deploy: 
+forge script script/Deploy.s.sol --rpc-url http://localhost:8545 --broadcast
+
+add amount to deployment public key:
+docker exec boltz-anvil cast send --rpc-url http://anvil:8545 --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 0x9cCA66b3F0655E8511ff25B8797034B8D99835cC --value 10ether
