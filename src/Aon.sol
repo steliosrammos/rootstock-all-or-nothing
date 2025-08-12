@@ -173,7 +173,7 @@ contract Aon is Initializable, Nonces {
         return status == Status.Claimed;
     }
 
-    function canRefund(address contributor) public view returns (uint256) {
+    function canRefund(address contributor) public view returns (uint256, uint256) {
         uint256 refundAmount = contributions[contributor];
         if (refundAmount == 0) revert CannotRefundZeroContribution();
 
@@ -185,18 +185,20 @@ contract Aon is Initializable, Nonces {
             revert InsufficientBalanceForRefund(balance, refundAmount, goal);
         }
 
+        uint256 nonce = nonces(contributor);
+
         if (isCancelled() || isFailed() || isUnclaimed()) {
-            return refundAmount;
+            return (refundAmount, nonce);
         }
 
         if (!goalReachedStrategy.isGoalReached()) {
-            return refundAmount;
+            return (refundAmount, nonce);
         }
 
-        return 0;
+        return (0, nonce);
     }
 
-    function canClaim(address _address) public view returns (uint256, uint256) {
+    function canClaim(address _address) public view returns (uint256, uint256, uint256) {
         if (!isCreator(_address)) revert OnlyCreatorCanClaim();
         if (isCancelled()) revert CannotClaimCancelledContract();
         if (isClaimed()) revert AlreadyClaimed();
@@ -204,7 +206,9 @@ contract Aon is Initializable, Nonces {
         if (isUnclaimed()) revert CannotClaimUnclaimedContract();
         if (!goalReachedStrategy.isGoalReached()) revert GoalNotReached();
 
-        return (address(this).balance - totalFee, totalFee);
+        uint256 nonce = nonces(_address);
+
+        return (address(this).balance - totalFee, totalFee, nonce);
     }
 
     function canClaimWithSignature() internal view returns (uint256, uint256) {
@@ -308,7 +312,7 @@ contract Aon is Initializable, Nonces {
     }
 
     function refund() external {
-        uint256 refundAmount = canRefund(msg.sender);
+        (uint256 refundAmount,) = canRefund(msg.sender);
 
         contributions[msg.sender] = 0;
 
@@ -346,12 +350,11 @@ contract Aon is Initializable, Nonces {
             revert SignatureExpired();
         }
 
-        uint256 refundAmount = canRefund(contributor);
+        (uint256 refundAmount, uint256 nonce) = canRefund(contributor);
 
         // -----------------------------------------------------------------
         // Verify EIP-712 signature
         // -----------------------------------------------------------------
-        uint256 nonce = nonces(contributor);
         bytes32 structHash =
             keccak256(abi.encode(_REFUND_TYPEHASH, contributor, swapContract, refundAmount, nonce, deadline));
 
@@ -379,7 +382,7 @@ contract Aon is Initializable, Nonces {
     }
 
     function claim() external {
-        (uint256 creatorAmount, uint256 _totalFee) = canClaim(msg.sender);
+        (uint256 creatorAmount, uint256 _totalFee,) = canClaim(msg.sender);
         status = Status.Claimed;
 
         if (_totalFee > 0) {
