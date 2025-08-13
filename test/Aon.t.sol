@@ -10,14 +10,19 @@ contract AonTest is Test {
     Aon aon;
     AonGoalReachedNative private goalReachedStrategy;
 
-    address payable private creator = payable(makeAddr("creator"));
-    address payable private contributor1 = payable(makeAddr("contributor1"));
+    address payable private creator;
+    uint256 private creatorPrivateKey;
+
+    address payable private contributor1;
+    uint256 private contributor1PrivateKey;
+
     address payable private contributor2 = payable(makeAddr("contributor2"));
     address private factoryOwner;
     address private randomAddress = makeAddr("random");
 
     uint256 private constant GOAL = 10 ether;
     uint256 private constant DURATION = 30 days;
+    uint256 private constant PLATFORM_FEE = 250; // 2.5% in basis points
 
     event ContributionReceived(address indexed contributor, uint256 amount);
     event ContributionRefunded(address indexed contributor, uint256 amount);
@@ -31,6 +36,14 @@ contract AonTest is Test {
     */
 
     function setUp() public {
+        (address _creator, uint256 _creatorPrivateKey) = makeAddrAndKey("creator");
+        creator = payable(_creator);
+        creatorPrivateKey = _creatorPrivateKey;
+
+        (address _contributor1, uint256 _contributor1PrivateKey) = makeAddrAndKey("contributor1");
+        contributor1 = payable(_contributor1);
+        contributor1PrivateKey = _contributor1PrivateKey;
+
         factoryOwner = address(this);
         goalReachedStrategy = new AonGoalReachedNative();
 
@@ -68,7 +81,7 @@ contract AonTest is Test {
             address(aon.goalReachedStrategy()), address(goalReachedStrategy), "Goal reached strategy should be set"
         );
         assertTrue(aon.endTime() > block.timestamp, "End time should be in the future");
-        assertEq(aon.isCancelled(), false, "Should not be cancelled initially");
+        assertEq(uint256(aon.status()), uint256(Aon.Status.Active), "Should be active initially");
     }
 
     /*
@@ -153,10 +166,10 @@ contract AonTest is Test {
     function test_Claim_FailsIfGoalNotReached() public {
         vm.prank(contributor1);
         aon.contribute{value: GOAL - 1 ether}(0);
-        vm.warp(aon.endTime() - 1 days);
+        vm.warp(aon.endTime() + 1 days);
 
         vm.prank(creator);
-        vm.expectRevert(Aon.GoalNotReached.selector);
+        vm.expectRevert(Aon.CannotClaimFailedContract.selector);
         aon.claim();
     }
 
@@ -324,7 +337,11 @@ contract AonTest is Test {
         attacker.swipe();
 
         // 7. Check that the attack failed (which is good) - contract should not be cancelled
-        assertFalse(aonForTest.isCancelled(), "Attack should have failed and contract should not be cancelled");
+        assertEq(
+            uint256(aonForTest.status()),
+            uint256(Aon.Status.Active),
+            "Attack should have failed and contract should remain active"
+        );
     }
 
     /*
@@ -336,7 +353,7 @@ contract AonTest is Test {
         vm.expectEmit(false, false, false, false);
         emit Cancelled();
         aon.cancel();
-        assertTrue(aon.isCancelled(), "Contract should be cancelled");
+        assertEq(uint256(aon.status()), uint256(Aon.Status.Cancelled), "Contract should be cancelled");
     }
 
     function test_Cancel_SuccessByFactoryOwner() public {
@@ -344,7 +361,7 @@ contract AonTest is Test {
         vm.expectEmit(false, false, false, false);
         emit Cancelled();
         aon.cancel();
-        assertTrue(aon.isCancelled(), "Contract should be cancelled");
+        assertEq(uint256(aon.status()), uint256(Aon.Status.Cancelled), "Contract should be cancelled");
     }
 
     function test_Cancel_FailsIfUnauthorized() public {
@@ -408,6 +425,251 @@ contract AonTest is Test {
         vm.prank(factoryOwner);
         vm.expectRevert(Aon.NoFundsToSwipe.selector);
         aon.swipeFunds();
+    }
+
+    function test_RefundWithSignature_Success() public {
+        uint256 contributionAmount = 1 ether;
+        vm.prank(contributor1);
+        aon.contribute{value: contributionAmount}(0);
+
+        // Cancel campaign to allow refunds
+        vm.prank(creator);
+        aon.cancel();
+
+        // Create signature for refund
+        address swapContract = address(0x123);
+        uint256 deadline = block.timestamp + 1 hours;
+        uint256 nonce = aon.nonces(contributor1);
+
+        bytes32 structHash = keccak256(
+            abi.encode(
+                keccak256(
+                    "Refund(address contributor,address swapContract,uint256 amount,uint256 nonce,uint256 deadline)"
+                ),
+                contributor1,
+                swapContract,
+                contributionAmount,
+                nonce,
+                deadline
+            )
+        );
+
+        bytes32 domainSeparator = aon.domainSeparator();
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
+
+        // Sign the digest with contributor1's private key
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(contributor1PrivateKey, digest);
+
+        uint256 swapContractInitialBalance = swapContract.balance;
+
+        // Execute refund with signature
+        vm.expectEmit(true, true, true, true);
+        emit ContributionRefunded(contributor1, contributionAmount);
+        aon.refundWithSignature(contributor1, swapContract, deadline, v, r, s);
+
+        // Verify refund was successful
+        assertEq(
+            swapContract.balance, swapContractInitialBalance + contributionAmount, "Swap contract should receive refund"
+        );
+        assertEq(aon.contributions(contributor1), 0, "Contribution should be cleared");
+        assertEq(aon.nonces(contributor1), nonce + 1, "Nonce should be incremented");
+    }
+
+    function test_RefundWithSignature_FailsWithInvalidSignature() public {
+        uint256 contributionAmount = 1 ether;
+        vm.prank(contributor1);
+        aon.contribute{value: contributionAmount}(0);
+
+        vm.prank(creator);
+        aon.cancel();
+
+        address swapContract = address(0x123);
+        uint256 deadline = block.timestamp + 1 hours;
+        uint256 nonce = aon.nonces(contributor1);
+
+        bytes32 structHash = keccak256(
+            abi.encode(
+                keccak256(
+                    "Refund(address contributor,address swapContract,uint256 amount,uint256 nonce,uint256 deadline)"
+                ),
+                contributor1,
+                swapContract,
+                contributionAmount,
+                nonce,
+                deadline
+            )
+        );
+
+        bytes32 domainSeparator = aon.domainSeparator();
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
+
+        // Sign with wrong private key (contributor2's key instead of contributor1's)
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(2, digest); // contributor2 uses key index 2
+
+        vm.expectRevert(Aon.InvalidSignature.selector);
+        aon.refundWithSignature(contributor1, swapContract, deadline, v, r, s);
+    }
+
+    function test_RefundWithSignature_FailsWithExpiredSignature() public {
+        uint256 contributionAmount = 1 ether;
+        vm.prank(contributor1);
+        aon.contribute{value: contributionAmount}(0);
+
+        vm.prank(creator);
+        aon.cancel();
+
+        address swapContract = address(0x123);
+        uint256 deadline = block.timestamp + 1 hours;
+        uint256 nonce = aon.nonces(contributor1);
+
+        bytes32 structHash = keccak256(
+            abi.encode(
+                keccak256(
+                    "Refund(address contributor,address swapContract,uint256 amount,uint256 nonce,uint256 deadline)"
+                ),
+                contributor1,
+                swapContract,
+                contributionAmount,
+                nonce,
+                deadline
+            )
+        );
+
+        bytes32 domainSeparator = aon.domainSeparator();
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
+
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(1, digest);
+
+        // Fast-forward past the deadline
+        vm.warp(deadline + 1);
+
+        vm.expectRevert(Aon.SignatureExpired.selector);
+        aon.refundWithSignature(contributor1, swapContract, deadline, v, r, s);
+    }
+
+    function test_ClaimWithSignature_Success() public {
+        uint256 contributionAmount = GOAL; // Contribute exactly the goal amount
+        vm.prank(contributor1);
+        aon.contribute{value: contributionAmount}(0);
+
+        // Fast-forward past the campaign end time
+        vm.warp(aon.endTime() + 1 days);
+
+        // Verify goal is reached
+        assertTrue(aon.isSuccessful(), "Campaign should be successful");
+
+        // Create signature for claim
+        address swapContract = address(0x456);
+        uint256 deadline = block.timestamp + 1 hours;
+        uint256 nonce = aon.nonces(creator);
+        uint256 claimAmount = address(aon).balance;
+
+        bytes32 structHash = keccak256(
+            abi.encode(
+                keccak256("Claim(address creator,address swapContract,uint256 amount,uint256 nonce,uint256 deadline)"),
+                creator,
+                swapContract,
+                claimAmount,
+                nonce,
+                deadline
+            )
+        );
+
+        bytes32 domainSeparator = aon.domainSeparator();
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
+
+        // Sign the digest with creator's private key
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(creatorPrivateKey, digest);
+
+        uint256 swapContractInitialBalance = swapContract.balance;
+
+        // Get the actual platform fee from the contract
+        uint256 platformFee = aon.totalFee();
+        uint256 creatorAmount = claimAmount - platformFee;
+
+        // Execute claim with signature
+        vm.expectEmit(true, true, true, true);
+        emit Claimed(creatorAmount, platformFee);
+        aon.claimWithSignature(swapContract, deadline, v, r, s);
+
+        // Verify claim was successful
+        assertEq(
+            swapContract.balance,
+            swapContractInitialBalance + creatorAmount,
+            "Swap contract should receive creator amount"
+        );
+        assertEq(aon.nonces(creator), nonce + 1, "Nonce should be incremented");
+        assertEq(uint256(aon.status()), uint256(Aon.Status.Claimed), "Status should be Claimed");
+    }
+
+    function test_ClaimWithSignature_FailsWithInvalidSignature() public {
+        uint256 contributionAmount = GOAL;
+        vm.prank(contributor1);
+        aon.contribute{value: contributionAmount}(0);
+
+        // Fast-forward past the campaign end time
+        vm.warp(aon.endTime() + 1 days);
+
+        uint256 deadline = block.timestamp + 1 hours;
+        uint256 nonce = aon.nonces(creator);
+        uint256 claimAmount = address(aon).balance;
+        address swapContract = address(0x456);
+
+        bytes32 structHash = keccak256(
+            abi.encode(
+                keccak256("Claim(address creator,address swapContract,uint256 amount,uint256 nonce,uint256 deadline)"),
+                creator,
+                swapContract,
+                claimAmount,
+                nonce,
+                deadline
+            )
+        );
+
+        bytes32 domainSeparator = aon.domainSeparator();
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
+
+        // Sign with wrong private key (contributor1's key instead of creator's)
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(contributor1PrivateKey, digest);
+
+        vm.expectRevert(Aon.InvalidSignature.selector);
+        aon.claimWithSignature(swapContract, deadline, v, r, s);
+    }
+
+    function test_ClaimWithSignature_FailsWithExpiredSignature() public {
+        uint256 contributionAmount = GOAL;
+        vm.prank(contributor1);
+        aon.contribute{value: contributionAmount}(0);
+
+        // Fast-forward past the campaign end time
+        vm.warp(aon.endTime() + 1 days);
+
+        uint256 deadline = block.timestamp + 1 hours;
+        uint256 nonce = aon.nonces(creator);
+        uint256 claimAmount = address(aon).balance;
+        address swapContract = address(0x456);
+
+        bytes32 structHash = keccak256(
+            abi.encode(
+                keccak256("Claim(address creator,address swapContract,uint256 amount,uint256 nonce,uint256 deadline)"),
+                creator,
+                swapContract,
+                claimAmount,
+                nonce,
+                deadline
+            )
+        );
+
+        bytes32 domainSeparator = aon.domainSeparator();
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
+
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(creatorPrivateKey, digest);
+
+        // Fast-forward past the deadline
+        vm.warp(deadline + 1);
+
+        vm.expectRevert(Aon.SignatureExpired.selector);
+        aon.claimWithSignature(swapContract, deadline, v, r, s);
     }
 }
 
