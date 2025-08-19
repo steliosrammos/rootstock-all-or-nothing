@@ -54,7 +54,7 @@ contract AonTest is Test {
 
         // Initialize contract via proxy
         vm.prank(factoryOwner);
-        aon.initialize(creator, GOAL, DURATION, address(goalReachedStrategy));
+        aon.initialize(creator, GOAL, block.timestamp + DURATION, address(goalReachedStrategy));
 
         vm.deal(contributor1, 100 ether);
         vm.deal(contributor2, 100 ether);

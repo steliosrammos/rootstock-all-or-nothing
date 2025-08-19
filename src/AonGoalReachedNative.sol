@@ -11,7 +11,7 @@ interface IAon {
 
 contract AonGoalReachedNative is IAonGoalReached {
     function isGoalReached() external view returns (bool) {
-        IAon aonContract = IAon(address(this));
+        IAon aonContract = IAon(msg.sender);
         uint256 goal = aonContract.goal();
         return msg.sender.balance >= goal;
     }
