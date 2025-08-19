@@ -127,15 +127,13 @@ contract Aon is Initializable, Nonces {
         _disableInitializers();
     }
 
-    function initialize(
-        address payable _creator,
-        uint256 _goal,
-        uint256 _durationInSeconds,
-        address _goalReachedStrategy
-    ) public initializer {
+    function initialize(address payable _creator, uint256 _goal, uint256 _endTime, address _goalReachedStrategy)
+        public
+        initializer
+    {
         creator = _creator;
         goal = _goal;
-        endTime = block.timestamp + _durationInSeconds;
+        endTime = _endTime;
         goalReachedStrategy = IAonGoalReached(_goalReachedStrategy);
         factory = IOwnable(msg.sender);
 
@@ -187,11 +185,7 @@ contract Aon is Initializable, Nonces {
 
         uint256 nonce = nonces(contributor);
 
-        if (isCancelled() || isFailed() || isUnclaimed()) {
-            return (refundAmount, nonce);
-        }
-
-        if (!goalReachedStrategy.isGoalReached()) {
+        if (isCancelled() || isFailed() || isUnclaimed() || !goalReachedStrategy.isGoalReached()) {
             return (refundAmount, nonce);
         }
 
@@ -265,10 +259,7 @@ contract Aon is Initializable, Nonces {
     * DERIVED STATE FUNCTIONS
     */
     function isUnclaimed() public view returns (bool) {
-        return (
-            block.timestamp > endTime + CLAIM_REFUND_WINDOW_IN_SECONDS && goalReachedStrategy.isGoalReached()
-                && address(this).balance > 0
-        );
+        return (block.timestamp > endTime + CLAIM_REFUND_WINDOW_IN_SECONDS && goalReachedStrategy.isGoalReached());
     }
 
     function isFailed() public view returns (bool) {
@@ -276,7 +267,7 @@ contract Aon is Initializable, Nonces {
     }
 
     function isSuccessful() public view returns (bool) {
-        return (!isCancelled() && block.timestamp > endTime && goalReachedStrategy.isGoalReached());
+        return (!isCancelled() && goalReachedStrategy.isGoalReached());
     }
 
     function isCreator(address _address) internal view returns (bool) {
@@ -292,7 +283,7 @@ contract Aon is Initializable, Nonces {
      *
      * @param contributor The address that originally contributed.
      */
-    function contributeFor(address contributor, uint256 fee) external payable {
+    function contributeFor(address contributor, uint256 fee) public payable {
         canContribute(msg.value);
         contributions[contributor] += msg.value;
         totalFee += fee;
@@ -303,12 +294,7 @@ contract Aon is Initializable, Nonces {
      * @notice Contribute to the campaign for the sender.
      */
     function contribute(uint256 fee) external payable {
-        canContribute(msg.value);
-
-        // TODO: change the ,msg sender to some reference of the contributor address (passed in the call data?)
-        contributions[msg.sender] += msg.value;
-        totalFee += fee;
-        emit ContributionReceived(msg.sender, msg.value);
+        contributeFor(msg.sender, fee);
     }
 
     function refund() external {
