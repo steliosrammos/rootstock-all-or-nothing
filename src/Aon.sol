@@ -127,13 +127,15 @@ contract Aon is Initializable, Nonces {
         _disableInitializers();
     }
 
-    function initialize(address payable _creator, uint256 _goal, uint256 _endTime, address _goalReachedStrategy)
-        public
-        initializer
-    {
+    function initialize(
+        address payable _creator,
+        uint256 _goal,
+        uint256 _durationInSeconds,
+        address _goalReachedStrategy
+    ) public initializer {
         creator = _creator;
         goal = _goal;
-        endTime = _endTime;
+        endTime = block.timestamp + _durationInSeconds;
         goalReachedStrategy = IAonGoalReached(_goalReachedStrategy);
         factory = IOwnable(msg.sender);
 
