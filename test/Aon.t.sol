@@ -459,13 +459,14 @@ contract AonTest is Test {
 
         // Sign the digest with contributor1's private key
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(contributor1PrivateKey, digest);
+        bytes memory signature = abi.encodePacked(r, s, v);
 
         uint256 swapContractInitialBalance = swapContract.balance;
 
         // Execute refund with signature
         vm.expectEmit(true, true, true, true);
         emit ContributionRefunded(contributor1, contributionAmount);
-        aon.refundWithSignature(contributor1, swapContract, deadline, v, r, s);
+        aon.refundWithSignature(contributor1, swapContract, deadline, signature, bytes32(0), address(0x123), 3600);
 
         // Verify refund was successful
         assertEq(
@@ -505,9 +506,10 @@ contract AonTest is Test {
 
         // Sign with wrong private key (contributor2's key instead of contributor1's)
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(2, digest); // contributor2 uses key index 2
+        bytes memory signature = abi.encodePacked(r, s, v);
 
         vm.expectRevert(Aon.InvalidSignature.selector);
-        aon.refundWithSignature(contributor1, swapContract, deadline, v, r, s);
+        aon.refundWithSignature(contributor1, swapContract, deadline, signature, bytes32(0), address(0x123), 3600);
     }
 
     function test_RefundWithSignature_FailsWithExpiredSignature() public {
@@ -539,12 +541,13 @@ contract AonTest is Test {
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
 
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(1, digest);
+        bytes memory signature = abi.encodePacked(r, s, v);
 
         // Fast-forward past the deadline
         vm.warp(deadline + 1);
 
         vm.expectRevert(Aon.SignatureExpired.selector);
-        aon.refundWithSignature(contributor1, swapContract, deadline, v, r, s);
+        aon.refundWithSignature(contributor1, swapContract, deadline, signature, bytes32(0), address(0x123), 3600);
     }
 
     function test_ClaimWithSignature_Success() public {
@@ -580,6 +583,7 @@ contract AonTest is Test {
 
         // Sign the digest with creator's private key
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(creatorPrivateKey, digest);
+        bytes memory signature = abi.encodePacked(r, s, v);
 
         uint256 swapContractInitialBalance = swapContract.balance;
 
@@ -590,7 +594,7 @@ contract AonTest is Test {
         // Execute claim with signature
         vm.expectEmit(true, true, true, true);
         emit Claimed(creatorAmount, platformFee);
-        aon.claimWithSignature(swapContract, deadline, v, r, s);
+        aon.claimWithSignature(swapContract, deadline, signature, bytes32(0), address(0x456), 7200);
 
         // Verify claim was successful
         assertEq(
@@ -631,9 +635,10 @@ contract AonTest is Test {
 
         // Sign with wrong private key (contributor1's key instead of creator's)
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(contributor1PrivateKey, digest);
+        bytes memory signature = abi.encodePacked(r, s, v);
 
         vm.expectRevert(Aon.InvalidSignature.selector);
-        aon.claimWithSignature(swapContract, deadline, v, r, s);
+        aon.claimWithSignature(swapContract, deadline, signature, bytes32(0), address(0x456), 7200);
     }
 
     function test_ClaimWithSignature_FailsWithExpiredSignature() public {
@@ -664,12 +669,13 @@ contract AonTest is Test {
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
 
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(creatorPrivateKey, digest);
+        bytes memory signature = abi.encodePacked(r, s, v);
 
         // Fast-forward past the deadline
         vm.warp(deadline + 1);
 
         vm.expectRevert(Aon.SignatureExpired.selector);
-        aon.claimWithSignature(swapContract, deadline, v, r, s);
+        aon.claimWithSignature(swapContract, deadline, signature, bytes32(0), address(0x456), 7200);
     }
 }
 

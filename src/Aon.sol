@@ -74,7 +74,7 @@ contract Aon is Initializable, Nonces {
     error FailedToRefund(bytes reason);
 
     // EIP-712 / signature errors
-    error InvalidSignature();
+    error InvalidSignature(address signer, address expectedSigner);
     error SignatureExpired();
 
     // Swipe Funds Errors
@@ -322,17 +322,19 @@ contract Aon is Initializable, Nonces {
      * @param swapContract The address where the refunded funds will be sent.
      * @param deadline    Timestamp after which the signature is no longer
      *                    valid.
-     * @param v           ECDSA recovery byte.
-     * @param r           ECDSA R value.
-     * @param s           ECDSA S value.
+     * @param signature   The EIP-712 signature bytes.
+     * @param preimageHash The preimage hash for the lock.
+     * @param claimAddress The address that can claim the locked funds.
+     * @param timelock     The timelock value for the lock.
      */
     function refundWithSignature(
         address contributor,
         address swapContract,
         uint256 deadline,
-        uint8 v,
-        bytes32 r,
-        bytes32 s
+        bytes calldata signature,
+        bytes32 preimageHash,
+        address claimAddress,
+        uint256 timelock
     ) external {
         if (block.timestamp > deadline) {
             revert SignatureExpired();
@@ -347,10 +349,10 @@ contract Aon is Initializable, Nonces {
             keccak256(abi.encode(_REFUND_TYPEHASH, contributor, swapContract, refundAmount, nonce, deadline));
 
         bytes32 digest = MessageHashUtils.toTypedDataHash(_DOMAIN_SEPARATOR, structHash);
-        address signer = ECDSA.recover(digest, v, r, s);
+        address signer = ECDSA.recover(digest, signature);
 
         if (signer != contributor) {
-            revert InvalidSignature();
+            revert InvalidSignature(signer, contributor);
         }
 
         // Consume nonce to prevent replay
@@ -361,7 +363,9 @@ contract Aon is Initializable, Nonces {
         // -----------------------------------------------------------------
         contributions[contributor] = 0;
 
-        (bool success, bytes memory reason) = swapContract.call{value: refundAmount}("");
+        (bool success, bytes memory reason) = swapContract.call{value: refundAmount}(
+            abi.encodeWithSignature("lock(bytes32,address,uint256)", preimageHash, claimAddress, timelock)
+        );
         if (!success) {
             revert FailedToRefund(reason);
         }
@@ -397,11 +401,19 @@ contract Aon is Initializable, Nonces {
      * @param swapContract The address where the claimed funds will be sent.
      * @param deadline    Timestamp after which the signature is no longer
      *                    valid.
-     * @param v           ECDSA recovery byte.
-     * @param r           ECDSA R value.
-     * @param s           ECDSA S value.
+     * @param signature   The EIP-712 signature bytes.
+     * @param preimageHash The preimage hash for the lock.
+     * @param claimAddress The address that can claim the locked funds.
+     * @param timelock     The timelock value for the lock.
      */
-    function claimWithSignature(address swapContract, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external {
+    function claimWithSignature(
+        address swapContract,
+        uint256 deadline,
+        bytes calldata signature,
+        bytes32 preimageHash,
+        address claimAddress,
+        uint256 timelock
+    ) external {
         if (block.timestamp > deadline) {
             revert SignatureExpired();
         }
@@ -418,10 +430,10 @@ contract Aon is Initializable, Nonces {
             keccak256(abi.encode(_CLAIM_TYPEHASH, creator, swapContract, totalBalance, nonce, deadline));
 
         bytes32 digest = MessageHashUtils.toTypedDataHash(_DOMAIN_SEPARATOR, structHash);
-        address signer = ECDSA.recover(digest, v, r, s);
+        address signer = ECDSA.recover(digest, signature);
 
         if (signer != creator) {
-            revert InvalidSignature();
+            revert InvalidSignature(signer, creator);
         }
 
         _useNonce(creator);
@@ -439,7 +451,9 @@ contract Aon is Initializable, Nonces {
         }
 
         if (creatorAmount > 0) {
-            (bool success, bytes memory reason) = swapContract.call{value: creatorAmount}("");
+            (bool success, bytes memory reason) = swapContract.call{value: creatorAmount}(
+                abi.encodeWithSignature("lock(bytes32,address,uint256)", preimageHash, claimAddress, timelock)
+            );
             if (!success) {
                 revert FailedToSendFundsInClaim(reason);
             }
