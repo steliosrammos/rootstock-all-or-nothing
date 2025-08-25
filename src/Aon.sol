@@ -74,7 +74,7 @@ contract Aon is Initializable, Nonces {
     error FailedToRefund(bytes reason);
 
     // EIP-712 / signature errors
-    error InvalidSignature(address signer, address expectedSigner);
+    error InvalidSignature();
     error SignatureExpired();
 
     // Swipe Funds Errors
@@ -352,7 +352,7 @@ contract Aon is Initializable, Nonces {
         address signer = ECDSA.recover(digest, signature);
 
         if (signer != contributor) {
-            revert InvalidSignature(signer, contributor);
+            revert InvalidSignature();
         }
 
         // Consume nonce to prevent replay
@@ -433,7 +433,7 @@ contract Aon is Initializable, Nonces {
         address signer = ECDSA.recover(digest, signature);
 
         if (signer != creator) {
-            revert InvalidSignature(signer, creator);
+            revert InvalidSignature();
         }
 
         _useNonce(creator);
