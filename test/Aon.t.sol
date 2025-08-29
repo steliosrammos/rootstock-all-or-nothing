@@ -427,7 +427,7 @@ contract AonTest is Test {
         aon.swipeFunds();
     }
 
-    function test_RefundWithSignature_Success() public {
+    function test_RefundToSwapContract_Success() public {
         uint256 contributionAmount = 1 ether;
         vm.prank(contributor1);
         aon.contribute{value: contributionAmount}(0);
@@ -466,7 +466,7 @@ contract AonTest is Test {
         // Execute refund with signature
         vm.expectEmit(true, true, true, true);
         emit ContributionRefunded(contributor1, contributionAmount);
-        aon.refundWithSignature(contributor1, swapContract, deadline, signature, bytes32(0), address(0x123), 3600);
+        aon.refundToSwapContract(contributor1, swapContract, deadline, signature, bytes32(0), address(0x123), 3600);
 
         // Verify refund was successful
         assertEq(
@@ -476,7 +476,7 @@ contract AonTest is Test {
         assertEq(aon.nonces(contributor1), nonce + 1, "Nonce should be incremented");
     }
 
-    function test_RefundWithSignature_FailsWithInvalidSignature() public {
+    function test_RefundToSwapContract_FailsWithInvalidSignature() public {
         uint256 contributionAmount = 1 ether;
         vm.prank(contributor1);
         aon.contribute{value: contributionAmount}(0);
@@ -509,10 +509,10 @@ contract AonTest is Test {
         bytes memory signature = abi.encodePacked(r, s, v);
 
         vm.expectRevert(Aon.InvalidSignature.selector);
-        aon.refundWithSignature(contributor1, swapContract, deadline, signature, bytes32(0), address(0x123), 3600);
+        aon.refundToSwapContract(contributor1, swapContract, deadline, signature, bytes32(0), address(0x123), 3600);
     }
 
-    function test_RefundWithSignature_FailsWithExpiredSignature() public {
+    function test_RefundToSwapContract_FailsWithExpiredSignature() public {
         uint256 contributionAmount = 1 ether;
         vm.prank(contributor1);
         aon.contribute{value: contributionAmount}(0);
@@ -547,10 +547,10 @@ contract AonTest is Test {
         vm.warp(deadline + 1);
 
         vm.expectRevert(Aon.SignatureExpired.selector);
-        aon.refundWithSignature(contributor1, swapContract, deadline, signature, bytes32(0), address(0x123), 3600);
+        aon.refundToSwapContract(contributor1, swapContract, deadline, signature, bytes32(0), address(0x123), 3600);
     }
 
-    function test_ClaimWithSignature_Success() public {
+    function test_ClaimToSwapContract_Success() public {
         uint256 contributionAmount = GOAL; // Contribute exactly the goal amount
         vm.prank(contributor1);
         aon.contribute{value: contributionAmount}(0);
@@ -594,7 +594,7 @@ contract AonTest is Test {
         // Execute claim with signature
         vm.expectEmit(true, true, true, true);
         emit Claimed(creatorAmount, platformFee);
-        aon.claimWithSignature(swapContract, deadline, signature, bytes32(0), address(0x456), 7200);
+        aon.claimToSwapContract(swapContract, deadline, signature, bytes32(0), address(0x456), 7200);
 
         // Verify claim was successful
         assertEq(
@@ -606,7 +606,7 @@ contract AonTest is Test {
         assertEq(uint256(aon.status()), uint256(Aon.Status.Claimed), "Status should be Claimed");
     }
 
-    function test_ClaimWithSignature_FailsWithInvalidSignature() public {
+    function test_ClaimToSwapContract_FailsWithInvalidSignature() public {
         uint256 contributionAmount = GOAL;
         vm.prank(contributor1);
         aon.contribute{value: contributionAmount}(0);
@@ -638,10 +638,10 @@ contract AonTest is Test {
         bytes memory signature = abi.encodePacked(r, s, v);
 
         vm.expectRevert(Aon.InvalidSignature.selector);
-        aon.claimWithSignature(swapContract, deadline, signature, bytes32(0), address(0x456), 7200);
+        aon.claimToSwapContract(swapContract, deadline, signature, bytes32(0), address(0x456), 7200);
     }
 
-    function test_ClaimWithSignature_FailsWithExpiredSignature() public {
+    function test_ClaimToSwapContract_FailsWithExpiredSignature() public {
         uint256 contributionAmount = GOAL;
         vm.prank(contributor1);
         aon.contribute{value: contributionAmount}(0);
@@ -675,7 +675,7 @@ contract AonTest is Test {
         vm.warp(deadline + 1);
 
         vm.expectRevert(Aon.SignatureExpired.selector);
-        aon.claimWithSignature(swapContract, deadline, signature, bytes32(0), address(0x456), 7200);
+        aon.claimToSwapContract(swapContract, deadline, signature, bytes32(0), address(0x456), 7200);
     }
 }
 

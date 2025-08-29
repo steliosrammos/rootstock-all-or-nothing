@@ -1,7 +1,9 @@
 {
     "cSpell.words": [
+        "chainid",
         "entrancy",
-        "Initializable"
+        "Initializable",
+        "TYPEHASH"
     ],
     "[solidity]": {
         "editor.defaultFormatter": "JuanBlanco.solidity",

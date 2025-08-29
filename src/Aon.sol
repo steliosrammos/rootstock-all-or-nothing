@@ -88,9 +88,9 @@ contract Aon is Initializable, Nonces {
     // solhint-disable-next-line max-line-length
     bytes32 private constant _EIP712_DOMAIN_TYPEHASH =
         keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
-    bytes32 private constant _REFUND_TYPEHASH =
+    bytes32 private constant _REFUND_TO_SWAP_CONTRACT_TYPEHASH =
         keccak256("Refund(address contributor,address swapContract,uint256 amount,uint256 nonce,uint256 deadline)");
-    bytes32 private constant _CLAIM_TYPEHASH =
+    bytes32 private constant _CLAIM_TO_SWAP_CONTRACT_TYPEHASH =
         keccak256("Claim(address creator,address swapContract,uint256 amount,uint256 nonce,uint256 deadline)");
 
     // Cached domain separator built in `initialize`
@@ -165,7 +165,7 @@ contract Aon is Initializable, Nonces {
 
     function canRefund(address contributor) public view returns (uint256, uint256) {
         uint256 refundAmount = contributions[contributor];
-        if (refundAmount == 0) revert CannotRefundZeroContribution();
+        if (refundAmount <= 0) revert CannotRefundZeroContribution();
 
         if (isClaimed()) revert CannotRefundClaimedContract();
 
@@ -197,8 +197,7 @@ contract Aon is Initializable, Nonces {
         return (address(this).balance - totalFee, totalFee, nonce);
     }
 
-    function canClaimWithSignature() internal view returns (uint256, uint256) {
-        // Skip isCreator() check - identity verified through signature
+    function canClaimToSwapContract() internal view returns (uint256, uint256) {
         if (isCancelled()) revert CannotClaimCancelledContract();
         if (isClaimed()) revert CannotClaimClaimedContract();
         if (isFailed()) revert CannotClaimFailedContract();
@@ -300,9 +299,7 @@ contract Aon is Initializable, Nonces {
 
         // We refund the contributor
         (bool success, bytes memory reason) = msg.sender.call{value: refundAmount}("");
-        if (!success) {
-            revert FailedToRefund(reason);
-        }
+        require(success, FailedToRefund(reason));
 
         emit ContributionRefunded(msg.sender, refundAmount);
     }
@@ -322,7 +319,7 @@ contract Aon is Initializable, Nonces {
      * @param claimAddress The address that can claim the locked funds.
      * @param timelock     The timelock value for the lock.
      */
-    function refundWithSignature(
+    function refundToSwapContract(
         address contributor,
         address swapContract,
         uint256 deadline,
@@ -331,24 +328,21 @@ contract Aon is Initializable, Nonces {
         address claimAddress,
         uint256 timelock
     ) external {
-        if (block.timestamp > deadline) {
-            revert SignatureExpired();
-        }
+        if (block.timestamp > deadline) revert SignatureExpired();
 
         (uint256 refundAmount, uint256 nonce) = canRefund(contributor);
 
         // -----------------------------------------------------------------
         // Verify EIP-712 signature
         // -----------------------------------------------------------------
-        bytes32 structHash =
-            keccak256(abi.encode(_REFUND_TYPEHASH, contributor, swapContract, refundAmount, nonce, deadline));
+        bytes32 structHash = keccak256(
+            abi.encode(_REFUND_TO_SWAP_CONTRACT_TYPEHASH, contributor, swapContract, refundAmount, nonce, deadline)
+        );
 
         bytes32 digest = MessageHashUtils.toTypedDataHash(_DOMAIN_SEPARATOR, structHash);
         address signer = ECDSA.recover(digest, signature);
 
-        if (signer != contributor) {
-            revert InvalidSignature();
-        }
+        require(signer == contributor, InvalidSignature());
 
         // Consume nonce to prevent replay
         _useNonce(contributor);
@@ -361,9 +355,7 @@ contract Aon is Initializable, Nonces {
         (bool success, bytes memory reason) = swapContract.call{value: refundAmount}(
             abi.encodeWithSignature("lock(bytes32,address,uint256)", preimageHash, claimAddress, timelock)
         );
-        if (!success) {
-            revert FailedToRefund(reason);
-        }
+        require(success, FailedToRefund(reason));
 
         emit ContributionRefunded(contributor, refundAmount);
     }
@@ -374,16 +366,12 @@ contract Aon is Initializable, Nonces {
 
         if (_totalFee > 0) {
             (bool success, bytes memory reason) = factory.owner().call{value: _totalFee}("");
-            if (!success) {
-                revert FailedToSendPlatformFee(reason);
-            }
+            require(success, FailedToSendPlatformFee(reason));
         }
 
         if (creatorAmount > 0) {
             (bool success, bytes memory reason) = creator.call{value: creatorAmount}("");
-            if (!success) {
-                revert FailedToSendFundsInClaim(reason);
-            }
+            require(success, FailedToSendFundsInClaim(reason));
         }
 
         emit Claimed(creatorAmount, _totalFee);
@@ -401,7 +389,7 @@ contract Aon is Initializable, Nonces {
      * @param claimAddress The address that can claim the locked funds.
      * @param timelock     The timelock value for the lock.
      */
-    function claimWithSignature(
+    function claimToSwapContract(
         address swapContract,
         uint256 deadline,
         bytes calldata signature,
@@ -409,11 +397,9 @@ contract Aon is Initializable, Nonces {
         address claimAddress,
         uint256 timelock
     ) external {
-        if (block.timestamp > deadline) {
-            revert SignatureExpired();
-        }
+        if (block.timestamp > deadline) revert SignatureExpired();
 
-        (uint256 creatorAmount, uint256 _totalFee) = canClaimWithSignature();
+        (uint256 creatorAmount, uint256 _totalFee) = canClaimToSwapContract();
         uint256 totalBalance = address(this).balance;
 
         // -----------------------------------------------------------------
@@ -421,15 +407,14 @@ contract Aon is Initializable, Nonces {
         // -----------------------------------------------------------------
 
         uint256 nonce = nonces(creator);
-        bytes32 structHash =
-            keccak256(abi.encode(_CLAIM_TYPEHASH, creator, swapContract, totalBalance, nonce, deadline));
+        bytes32 structHash = keccak256(
+            abi.encode(_CLAIM_TO_SWAP_CONTRACT_TYPEHASH, creator, swapContract, totalBalance, nonce, deadline)
+        );
 
         bytes32 digest = MessageHashUtils.toTypedDataHash(_DOMAIN_SEPARATOR, structHash);
         address signer = ECDSA.recover(digest, signature);
 
-        if (signer != creator) {
-            revert InvalidSignature();
-        }
+        require(signer == creator, InvalidSignature());
 
         _useNonce(creator);
 
@@ -440,18 +425,14 @@ contract Aon is Initializable, Nonces {
 
         if (_totalFee > 0) {
             (bool success, bytes memory reason) = factory.owner().call{value: _totalFee}("");
-            if (!success) {
-                revert FailedToSendPlatformFee(reason);
-            }
+            require(success, FailedToSendPlatformFee(reason));
         }
 
         if (creatorAmount > 0) {
             (bool success, bytes memory reason) = swapContract.call{value: creatorAmount}(
                 abi.encodeWithSignature("lock(bytes32,address,uint256)", preimageHash, claimAddress, timelock)
             );
-            if (!success) {
-                revert FailedToSendFundsInClaim(reason);
-            }
+            require(success, FailedToSendFundsInClaim(reason));
         }
 
         emit Claimed(creatorAmount, _totalFee);
