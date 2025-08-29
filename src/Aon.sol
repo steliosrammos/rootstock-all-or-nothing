@@ -11,17 +11,6 @@ interface IOwnable {
     function owner() external view returns (address);
 }
 
-/*
-    CONTRACT STATES
-
-    Contract states are derived or implicit, to avoid storing a state enum.
-
-    - Active: default state. The contract is active and accepting contributions.
-    - Cancelled: the creator has cancelled the contract.
-    - Refunded / Claimed: final states of the contract. Implicit states, when the balance is 0 and the contract has expired.
-    - Successful/Failed: Implicit states, based on the project balance while the project hasn't expired yet.
-*/
-
 contract Aon is Initializable, Nonces {
     /*
     * EVENTS
@@ -282,6 +271,7 @@ contract Aon is Initializable, Nonces {
 
     /**
      * @notice Contribute to the campaign on behalf of a contributor.
+     *         Used for contributions that go through a swap contract.
      *
      * @param contributor The address that originally contributed.
      */
@@ -299,6 +289,9 @@ contract Aon is Initializable, Nonces {
         contributeFor(msg.sender, fee);
     }
 
+    /**
+     * @notice Refund the sender's contributions. Used to refund contributions directly on Rootstock.
+     */
     function refund() external {
         (uint256 refundAmount,) = canRefund(msg.sender);
 
@@ -316,6 +309,7 @@ contract Aon is Initializable, Nonces {
     /**
      * @notice Refund contributions on behalf of a contributor using an EIP-712
      *         signed message. Funds are sent to the specified swap contract.
+     *         Used for refunds that need to go through a swap contract.
      *
      * @param contributor The address that originally contributed and signed
      *                    the permit.
