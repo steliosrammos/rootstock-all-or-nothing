@@ -54,7 +54,7 @@ contract AonTest is Test {
 
         // Initialize contract via proxy
         vm.prank(factoryOwner);
-        aon.initialize(creator, GOAL, block.timestamp + DURATION, address(goalReachedStrategy));
+        aon.initialize(creator, GOAL, block.timestamp + DURATION, address(goalReachedStrategy), 30 days);
 
         vm.deal(contributor1, 100 ether);
         vm.deal(contributor2, 100 ether);
@@ -242,7 +242,7 @@ contract AonTest is Test {
         aon.contribute{value: contributionAmount}(0);
 
         // Fast-forward past claim window
-        vm.warp(aon.endTime() + aon.CLAIM_REFUND_WINDOW_IN_SECONDS() + 1 days);
+        vm.warp(aon.endTime() + aon.claimOrRefundWindow() + 1 days);
         assertTrue(aon.isUnclaimed(), "Campaign should be in unclaimed state");
 
         uint256 contributorInitialBalance = contributor1.balance;
@@ -318,7 +318,7 @@ contract AonTest is Test {
         AonProxy proxy = new AonProxy(address(implementation));
         Aon aonForTest = Aon(address(proxy));
         vm.prank(address(factory)); // Pretend the factory is deploying this Aon instance
-        aonForTest.initialize(creator, GOAL, DURATION, address(goalReachedStrategy));
+        aonForTest.initialize(creator, GOAL, DURATION, address(goalReachedStrategy), 30 days);
 
         // 4. Link the attacker contract to the new Aon instance
         attacker.setAon(aonForTest);
@@ -326,7 +326,7 @@ contract AonTest is Test {
         // 5. Fund the campaign and let it run its course until funds are swipe-able
         vm.prank(contributor1);
         aonForTest.contribute{value: 1 ether}(0);
-        vm.warp(aonForTest.endTime() + (aonForTest.CLAIM_REFUND_WINDOW_IN_SECONDS() * 2) + 1 days);
+        vm.warp(aonForTest.endTime() + (aonForTest.claimOrRefundWindow() * 2) + 1 days);
 
         // 6. Attacker tries to swipe funds, which triggers a re-entrant call.
         // The attack should fail because the contract becomes finalized after funds are sent,
@@ -388,7 +388,7 @@ contract AonTest is Test {
         aon.contribute{value: 1 ether}(0);
 
         // Fast-forward past all windows
-        vm.warp(aon.endTime() + (aon.CLAIM_REFUND_WINDOW_IN_SECONDS() * 2) + 1 days);
+        vm.warp(aon.endTime() + (aon.claimOrRefundWindow() * 2) + 1 days);
 
         uint256 contractBalance = address(aon).balance;
         uint256 factoryInitialBalance = factoryOwner.balance;
@@ -420,7 +420,7 @@ contract AonTest is Test {
 
     function test_SwipeFunds_FailsIfNoFunds() public {
         // Fast-forward past all windows
-        vm.warp(aon.endTime() + (aon.CLAIM_REFUND_WINDOW_IN_SECONDS() * 2) + 1 days);
+        vm.warp(aon.endTime() + (aon.claimOrRefundWindow() * 2) + 1 days);
 
         vm.prank(factoryOwner);
         vm.expectRevert(Aon.NoFundsToSwipe.selector);

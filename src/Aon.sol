@@ -73,9 +73,6 @@ contract Aon is Initializable, Nonces {
     error NoFundsToSwipe();
     error OnlyFactoryCanSwipeFunds();
 
-    // Constants
-    uint256 public constant CLAIM_REFUND_WINDOW_IN_SECONDS = 30 days;
-
     // Status enum
     enum Status {
         Active, // 0 - Default active state
@@ -107,6 +104,8 @@ contract Aon is Initializable, Nonces {
     uint256 public goal;
     uint256 public endTime;
     uint256 public totalFee;
+    uint256 public claimOrRefundWindow;
+
     Status public status = Status.Active;
     mapping(address => uint256) public contributions;
     IAonGoalReached public goalReachedStrategy;
@@ -120,11 +119,13 @@ contract Aon is Initializable, Nonces {
         address payable _creator,
         uint256 _goal,
         uint256 _durationInSeconds,
-        address _goalReachedStrategy
+        address _goalReachedStrategy,
+        uint256 _claimOrRefundWindow
     ) public initializer {
         creator = _creator;
         goal = _goal;
         endTime = block.timestamp + _durationInSeconds;
+        claimOrRefundWindow = _claimOrRefundWindow;
         goalReachedStrategy = IAonGoalReached(_goalReachedStrategy);
         factory = IOwnable(msg.sender);
 
@@ -151,7 +152,7 @@ contract Aon is Initializable, Nonces {
     * UTILITY FUNCTIONS
     */
     function isFinalized() internal view returns (bool) {
-        return (address(this).balance == 0 && block.timestamp > (endTime + CLAIM_REFUND_WINDOW_IN_SECONDS * 2));
+        return (address(this).balance == 0 && block.timestamp > (endTime + claimOrRefundWindow * 2));
     }
 
     function isCancelled() internal view returns (bool) {
@@ -237,7 +238,7 @@ contract Aon is Initializable, Nonces {
             We take the claim/refund twice as the max delay, in case the funds were not claimed by the creator 
             (claim window) and then some funds were not refunded (refund window).
         */
-        if (block.timestamp <= endTime + CLAIM_REFUND_WINDOW_IN_SECONDS * 2) {
+        if (block.timestamp <= endTime + claimOrRefundWindow * 2) {
             revert CannotSwipeFundsBeforeEndOfClaimOrRefundWindow();
         }
 
@@ -250,7 +251,7 @@ contract Aon is Initializable, Nonces {
     * DERIVED STATE FUNCTIONS
     */
     function isUnclaimed() public view returns (bool) {
-        return (block.timestamp > endTime + CLAIM_REFUND_WINDOW_IN_SECONDS && goalReachedStrategy.isGoalReached());
+        return (block.timestamp > endTime + claimOrRefundWindow && goalReachedStrategy.isGoalReached());
     }
 
     function isFailed() public view returns (bool) {
