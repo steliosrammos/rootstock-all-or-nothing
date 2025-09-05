@@ -77,7 +77,10 @@ contract Aon is Initializable, Nonces {
     enum Status {
         Active, // 0 - Default active state
         Cancelled, // 1 - Campaign cancelled
-        Claimed // 2 - Funds claimed by creator
+        Claimed, // 2 - Funds claimed by creator
+        Successful, // 3 - Goal reached and claim window expired
+        Failed, // 4 - Time expired without reaching goal
+        Finalized // 5 - All operations complete, contract can be cleaned up
 
     }
 
@@ -106,6 +109,9 @@ contract Aon is Initializable, Nonces {
     uint256 public totalFee;
     uint256 public claimOrRefundWindow;
 
+    /*
+    * status: only updated to Active, Cancelled or Claimed, other statuses are derived from contract state
+    */
     Status public status = Status.Active;
     mapping(address => uint256) public contributions;
     IAonGoalReached public goalReachedStrategy;
@@ -249,6 +255,19 @@ contract Aon is Initializable, Nonces {
     /*
     * DERIVED STATE FUNCTIONS
     */
+    function getStatus() public view returns (Status) {
+        if (status == Status.Active) {
+            if (isFailed()) return Status.Failed;
+            if (isSuccessful()) return Status.Successful;
+            return Status.Active;
+        }
+        if (isFinalized()) return Status.Finalized;
+        if (isClaimed()) return Status.Claimed;
+        if (isCancelled()) return Status.Cancelled;
+
+        return status;
+    }
+
     function isUnclaimed() public view returns (bool) {
         return (block.timestamp > endTime + claimOrRefundWindow && goalReachedStrategy.isGoalReached());
     }
