@@ -1,0 +1,54 @@
+services:
+  anvil:
+    image: ghcr.io/foundry-rs/foundry:latest
+    container_name: aon-anvil
+    network_mode: host
+    command: anvil --host 0.0.0.0 --port 8545 --chain-id 31337 --block-time 2 --accounts 10 --balance 10000 --gas-limit 30000000 --gas-price 1000000000
+    healthcheck:
+      test: ["CMD", "sh", "-c", "ps aux | grep -v grep | grep -q anvil"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Optional: Add a simple block explorer
+  blockscout:
+    image: blockscout/blockscout:latest
+    container_name: aon-blockscout
+    ports:
+      - "4000:4000"
+    environment:
+      - ETHEREUM_JSONRPC_VARIANT=geth
+      - ETHEREUM_JSONRPC_HTTP_URL=http://anvil:8545
+      - ETHEREUM_JSONRPC_WS_URL=ws://anvil:8545
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/blockscout
+      - ECTO_USE_SSL=false
+      - SECRET_KEY_BASE=56NtB48ear7+wMSf0IQuWDAAazhpb31qyc7GiyspBP2vh7t5zlCsF5QDv76chXeN
+      - COIN=ETH
+      - SUBNETWORK=Anvil
+      - LOGO=/images/blockscout_logo.svg
+      - LOGO_FOOTER=/images/blockscout_logo.svg
+    depends_on:
+      anvil:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+    profiles: ["with-explorer"]
+
+  db:
+    image: postgres:13
+    container_name: aon-postgres
+    environment:
+      - POSTGRES_DB=blockscout
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    profiles: ["with-explorer"]
+
+volumes:
+  postgres_data:
