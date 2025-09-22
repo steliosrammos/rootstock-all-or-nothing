@@ -93,7 +93,7 @@ contract AonTest is Test {
         vm.prank(contributor1);
         vm.expectEmit(true, true, true, true);
         emit ContributionReceived(contributor1, contributionAmount);
-        aon.contribute{value: contributionAmount}(0);
+        aon.contribute{value: contributionAmount}(0, 0);
 
         assertEq(address(aon).balance, contributionAmount, "Contract balance should increase");
         assertEq(aon.contributions(contributor1), contributionAmount, "Contributor's balance should be recorded");
@@ -102,14 +102,14 @@ contract AonTest is Test {
     function test_Contribute_FailsIfZeroAmount() public {
         vm.prank(contributor1);
         vm.expectRevert(Aon.InvalidContribution.selector);
-        aon.contribute{value: 0}(0);
+        aon.contribute{value: 0}(0, 0);
     }
 
     function test_Contribute_FailsIfAfterEndTime() public {
         vm.warp(aon.endTime() + 1 days);
         vm.prank(contributor1);
         vm.expectRevert(Aon.CannotContributeAfterEndTime.selector);
-        aon.contribute{value: 1 ether}(0);
+        aon.contribute{value: 1 ether}(0, 0);
     }
 
     function test_Contribute_FailsIfCancelled() public {
@@ -118,7 +118,78 @@ contract AonTest is Test {
 
         vm.prank(contributor1);
         vm.expectRevert(Aon.CannotContributeToCancelledContract.selector);
-        aon.contribute{value: 1 ether}(0);
+        aon.contribute{value: 1 ether}(0, 0);
+    }
+
+    /*
+    * TIP TESTS
+    */
+
+    function test_Contribute_WithTip_Success() public {
+        uint256 contributionAmount = 1 ether;
+        uint256 tipAmount = 0.1 ether;
+        uint256 expectedContribution = contributionAmount - tipAmount;
+
+        vm.prank(contributor1);
+        vm.expectEmit(true, true, true, true);
+        emit ContributionReceived(contributor1, expectedContribution);
+        aon.contribute{value: contributionAmount}(0, tipAmount);
+
+        assertEq(address(aon).balance, contributionAmount, "Contract balance should include tip");
+        assertEq(aon.contributions(contributor1), expectedContribution, "Contribution should exclude tip");
+        assertEq(aon.totalTip(), tipAmount, "Total tip should be tracked");
+    }
+
+    function test_Contribute_WithTip_FailsIfTipExceedsContribution() public {
+        uint256 contributionAmount = 1 ether;
+        uint256 tipAmount = 1.1 ether; // Tip exceeds contribution
+
+        vm.prank(contributor1);
+        vm.expectRevert(Aon.TipCannotExceedContributionAmount.selector);
+        aon.contribute{value: contributionAmount}(0, tipAmount);
+    }
+
+    function test_Contribute_WithTip_FailsIfTipEqualsContribution() public {
+        uint256 contributionAmount = 1 ether;
+        uint256 tipAmount = 1 ether; // Tip equals contribution (should fail)
+
+        vm.prank(contributor1);
+        vm.expectRevert(Aon.TipCannotExceedContributionAmount.selector);
+        aon.contribute{value: contributionAmount}(0, tipAmount);
+    }
+
+    function test_Contribute_MultipleTips_AccumulateCorrectly() public {
+        uint256 contributionAmount1 = 1 ether;
+        uint256 tipAmount1 = 0.1 ether;
+        uint256 contributionAmount2 = 2 ether;
+        uint256 tipAmount2 = 0.2 ether;
+
+        // First contribution with tip
+        vm.prank(contributor1);
+        aon.contribute{value: contributionAmount1}(0, tipAmount1);
+
+        // Second contribution with tip
+        vm.prank(contributor2);
+        aon.contribute{value: contributionAmount2}(0, tipAmount2);
+
+        assertEq(aon.totalTip(), tipAmount1 + tipAmount2, "Total tips should accumulate");
+        assertEq(aon.contributions(contributor1), contributionAmount1 - tipAmount1, "First contribution should exclude tip");
+        assertEq(aon.contributions(contributor2), contributionAmount2 - tipAmount2, "Second contribution should exclude tip");
+    }
+
+    function test_ContributeFor_WithTips_Success() public {
+        uint256 contributionAmount = 1 ether;
+        uint256 tipAmount = 0.1 ether;
+        uint256 expectedContribution = contributionAmount - tipAmount;
+
+        vm.prank(factoryOwner); // Factory calls contributeFor
+        vm.expectEmit(true, true, true, true);
+        emit ContributionReceived(contributor1, expectedContribution);
+        aon.contributeFor{value: contributionAmount}(contributor1, 0, tipAmount);
+
+        assertEq(address(aon).balance, contributionAmount, "Contract balance should include tip");
+        assertEq(aon.contributions(contributor1), expectedContribution, "Contribution should exclude tip");
+        assertEq(aon.totalTip(), tipAmount, "Total tip should be tracked");
     }
 
     /*
@@ -128,9 +199,9 @@ contract AonTest is Test {
     function test_Claim_Success() public {
         // Contributors meet the goal
         vm.prank(contributor1);
-        aon.contribute{value: 5 ether}(0);
+        aon.contribute{value: 5 ether}(0, 0);
         vm.prank(contributor2);
-        aon.contribute{value: 5 ether}(0);
+        aon.contribute{value: 5 ether}(0, 0);
 
         // Fast-forward past the end time
         vm.warp(aon.endTime() + 1 days);
@@ -153,9 +224,38 @@ contract AonTest is Test {
         assertEq(factoryOwner.balance, factoryInitialBalance + totalFee, "Factory should receive the fee");
     }
 
+    function test_Claim_WithTips_Success() public {
+        // Contributors meet the goal with tips
+        vm.prank(contributor1);
+        aon.contribute{value: 5 ether}(0, 0.5 ether); // 4.5 ether contribution, 0.5 ether tip
+        vm.prank(contributor2);
+        aon.contribute{value: 5 ether}(0, 0.5 ether); // 4.5 ether contribution, 0.5 ether tip
+
+        // Fast-forward past the end time
+        vm.warp(aon.endTime() + 1 days);
+        assertTrue(aon.isSuccessful(), "Campaign should be successful");
+
+        // Creator claims the funds
+        uint256 contractBalance = address(aon).balance;
+        uint256 totalFee = aon.totalFee();
+        uint256 totalTip = aon.totalTip();
+        uint256 creatorAmount = contractBalance - totalFee - totalTip;
+        uint256 creatorInitialBalance = creator.balance;
+        uint256 factoryInitialBalance = factoryOwner.balance;
+
+        vm.prank(creator);
+        vm.expectEmit(true, true, false, true);
+        emit Claimed(creatorAmount, totalFee);
+        aon.claim();
+
+        assertEq(address(aon).balance, 0, "Contract balance should be zero after claim");
+        assertEq(creator.balance, creatorInitialBalance + creatorAmount, "Creator should receive the funds (excluding tips)");
+        assertEq(factoryOwner.balance, factoryInitialBalance + totalFee + totalTip, "Factory should receive fees and tips");
+    }
+
     function test_Claim_FailsIfNotCreator() public {
         vm.prank(contributor1);
-        aon.contribute{value: GOAL}(0);
+        aon.contribute{value: GOAL}(0, 0);
         vm.warp(aon.endTime() + 1 days);
 
         vm.prank(randomAddress);
@@ -165,7 +265,7 @@ contract AonTest is Test {
 
     function test_Claim_FailsIfGoalNotReached() public {
         vm.prank(contributor1);
-        aon.contribute{value: GOAL - 1 ether}(0);
+        aon.contribute{value: GOAL - 1 ether}(0, 0);
         vm.warp(aon.endTime() + 1 days);
 
         vm.prank(creator);
@@ -175,7 +275,7 @@ contract AonTest is Test {
 
     function test_Claim_FailsIfCampaignFailed() public {
         vm.prank(contributor1);
-        aon.contribute{value: 1 ether}(0); // Goal not reached
+        aon.contribute{value: 1 ether}(0, 0); // Goal not reached
 
         vm.warp(aon.endTime() + 1 days);
         assertTrue(aon.isFailed(), "Campaign should have failed");
@@ -187,7 +287,7 @@ contract AonTest is Test {
 
     function test_Claim_FailsIfCancelled() public {
         vm.prank(contributor1);
-        aon.contribute{value: GOAL}(0);
+        aon.contribute{value: GOAL}(0, 0);
         vm.prank(creator);
         aon.cancel();
 
@@ -203,7 +303,7 @@ contract AonTest is Test {
     function test_Refund_SuccessIfCampaignFailed() public {
         uint256 contributionAmount = 1 ether;
         vm.prank(contributor1);
-        aon.contribute{value: contributionAmount}(0);
+        aon.contribute{value: contributionAmount}(0, 0);
 
         vm.warp(aon.endTime() + 1 days); // Let campaign fail
         assertTrue(aon.isFailed(), "Campaign should have failed");
@@ -223,7 +323,7 @@ contract AonTest is Test {
     function test_Refund_SuccessIfCancelled() public {
         uint256 contributionAmount = 1 ether;
         vm.prank(contributor1);
-        aon.contribute{value: contributionAmount}(0);
+        aon.contribute{value: contributionAmount}(0, 0);
 
         vm.prank(creator);
         aon.cancel();
@@ -239,7 +339,7 @@ contract AonTest is Test {
     function test_Refund_SuccessIfUnclaimed() public {
         uint256 contributionAmount = GOAL;
         vm.prank(contributor1);
-        aon.contribute{value: contributionAmount}(0);
+        aon.contribute{value: contributionAmount}(0, 0);
 
         // Fast-forward past claim window
         vm.warp(aon.endTime() + aon.claimOrRefundWindow() + 1 days);
@@ -265,11 +365,11 @@ contract AonTest is Test {
     function test_Refund_FailsIfItDropsBalanceBelowGoal() public {
         vm.prank(contributor1);
         uint256 contributionAmount = GOAL;
-        aon.contribute{value: contributionAmount}(0); // Exactly meets goal
+        aon.contribute{value: contributionAmount}(0, 0); // Exactly meets goal
 
         // Another contribution
         vm.prank(contributor2);
-        aon.contribute{value: 1 ether}(0);
+        aon.contribute{value: 1 ether}(0, 0);
 
         // Contributor 1 cannot refund because it would bring balance below goal
         vm.prank(contributor1);
@@ -279,6 +379,63 @@ contract AonTest is Test {
             )
         );
         aon.refund();
+    }
+
+    function test_Refund_WithTips_TipsNotRefunded() public {
+        uint256 contributionAmount = 1 ether;
+        uint256 tipAmount = 0.1 ether;
+        uint256 expectedRefund = contributionAmount - tipAmount;
+
+        // Contribute with tip
+        vm.prank(contributor1);
+        aon.contribute{value: contributionAmount}(0, tipAmount);
+
+        // Let campaign fail
+        vm.warp(aon.endTime() + 1 days);
+        assertTrue(aon.isFailed(), "Campaign should have failed");
+
+        uint256 contributorInitialBalance = contributor1.balance;
+        uint256 factoryInitialBalance = factoryOwner.balance;
+
+        // Refund should only return contribution amount, not tip
+        vm.prank(contributor1);
+        vm.expectEmit(true, true, true, true);
+        emit ContributionRefunded(contributor1, expectedRefund);
+        aon.refund();
+
+        assertEq(
+            contributor1.balance, contributorInitialBalance + expectedRefund, "Contributor should get contribution back (not tip)"
+        );
+        assertEq(factoryOwner.balance, factoryInitialBalance, "Factory should not receive tips on refund");
+        assertEq(aon.contributions(contributor1), 0, "Contribution record should be cleared");
+        assertEq(aon.totalTip(), tipAmount, "Total tip should remain unchanged");
+    }
+
+    function test_Refund_WithTips_AfterCancellation_TipsNotRefunded() public {
+        uint256 contributionAmount = 1 ether;
+        uint256 tipAmount = 0.1 ether;
+        uint256 expectedRefund = contributionAmount - tipAmount;
+
+        // Contribute with tip
+        vm.prank(contributor1);
+        aon.contribute{value: contributionAmount}(0, tipAmount);
+
+        // Cancel campaign
+        vm.prank(creator);
+        aon.cancel();
+
+        uint256 contributorInitialBalance = contributor1.balance;
+        uint256 factoryInitialBalance = factoryOwner.balance;
+
+        // Refund should only return contribution amount, not tip
+        vm.prank(contributor1);
+        aon.refund();
+
+        assertEq(
+            contributor1.balance, contributorInitialBalance + expectedRefund, "Contributor should get contribution back (not tip)"
+        );
+        assertEq(factoryOwner.balance, factoryInitialBalance, "Factory should not receive tips on refund");
+        assertEq(aon.totalTip(), tipAmount, "Total tip should remain unchanged");
     }
 
     /*
@@ -291,7 +448,7 @@ contract AonTest is Test {
         vm.deal(address(attacker), 1 ether);
 
         // Attacker contributes
-        attacker.contribute{value: 1 ether}(0);
+        attacker.contribute{value: 1 ether}(0, 0);
         assertEq(aon.contributions(address(attacker)), 1 ether);
 
         // Cancel campaign to allow refunds
@@ -325,7 +482,7 @@ contract AonTest is Test {
 
         // 5. Fund the campaign and let it run its course until funds are swipe-able
         vm.prank(contributor1);
-        aonForTest.contribute{value: 1 ether}(0);
+        aonForTest.contribute{value: 1 ether}(0, 0);
         vm.warp(aonForTest.endTime() + (aonForTest.claimOrRefundWindow() * 2) + 1 days);
 
         // 6. Attacker tries to swipe funds, which triggers a re-entrant call.
@@ -385,7 +542,7 @@ contract AonTest is Test {
 
     function test_SwipeFunds_Success() public {
         vm.prank(contributor1);
-        aon.contribute{value: 1 ether}(0);
+        aon.contribute{value: 1 ether}(0, 0);
 
         // Fast-forward past all windows
         vm.warp(aon.endTime() + (aon.claimOrRefundWindow() * 2) + 1 days);
@@ -410,7 +567,7 @@ contract AonTest is Test {
 
     function test_SwipeFunds_FailsIfWindowNotOver() public {
         vm.prank(contributor1);
-        aon.contribute{value: 1 ether}(0);
+        aon.contribute{value: 1 ether}(0, 0);
         vm.warp(aon.endTime());
 
         vm.prank(factoryOwner);
@@ -430,7 +587,7 @@ contract AonTest is Test {
     function test_RefundToSwapContract_Success() public {
         uint256 contributionAmount = 1 ether;
         vm.prank(contributor1);
-        aon.contribute{value: contributionAmount}(0);
+        aon.contribute{value: contributionAmount}(0, 0);
 
         // Cancel campaign to allow refunds
         vm.prank(creator);
@@ -479,7 +636,7 @@ contract AonTest is Test {
     function test_RefundToSwapContract_FailsWithInvalidSignature() public {
         uint256 contributionAmount = 1 ether;
         vm.prank(contributor1);
-        aon.contribute{value: contributionAmount}(0);
+        aon.contribute{value: contributionAmount}(0, 0);
 
         vm.prank(creator);
         aon.cancel();
@@ -515,7 +672,7 @@ contract AonTest is Test {
     function test_RefundToSwapContract_FailsWithExpiredSignature() public {
         uint256 contributionAmount = 1 ether;
         vm.prank(contributor1);
-        aon.contribute{value: contributionAmount}(0);
+        aon.contribute{value: contributionAmount}(0, 0);
 
         vm.prank(creator);
         aon.cancel();
@@ -553,7 +710,7 @@ contract AonTest is Test {
     function test_ClaimToSwapContract_Success() public {
         uint256 contributionAmount = GOAL; // Contribute exactly the goal amount
         vm.prank(contributor1);
-        aon.contribute{value: contributionAmount}(0);
+        aon.contribute{value: contributionAmount}(0, 0);
 
         // Fast-forward past the campaign end time
         vm.warp(aon.endTime() + 1 days);
@@ -609,7 +766,7 @@ contract AonTest is Test {
     function test_ClaimToSwapContract_FailsWithInvalidSignature() public {
         uint256 contributionAmount = GOAL;
         vm.prank(contributor1);
-        aon.contribute{value: contributionAmount}(0);
+        aon.contribute{value: contributionAmount}(0, 0);
 
         // Fast-forward past the campaign end time
         vm.warp(aon.endTime() + 1 days);
@@ -644,7 +801,7 @@ contract AonTest is Test {
     function test_ClaimToSwapContract_FailsWithExpiredSignature() public {
         uint256 contributionAmount = GOAL;
         vm.prank(contributor1);
-        aon.contribute{value: contributionAmount}(0);
+        aon.contribute{value: contributionAmount}(0, 0);
 
         // Fast-forward past the campaign end time
         vm.warp(aon.endTime() + 1 days);
@@ -687,8 +844,8 @@ contract MaliciousRefund {
         aon = _aon;
     }
 
-    function contribute(uint256 fee) external payable {
-        aon.contribute{value: msg.value}(fee);
+    function contribute(uint256 fee, uint256 tip) external payable {
+        aon.contribute{value: msg.value}(fee, tip);
     }
 
     function startAttack() external {
