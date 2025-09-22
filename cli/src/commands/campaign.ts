@@ -120,6 +120,9 @@ export const campaignCommand = new Command('campaign')
           console.log(`End Time: ${chalk.gray(formatTime(info.endTime))}`);
           console.log(`Time Remaining: ${formatTimeRemaining(info.endTime)}`);
           console.log(`Platform Fees: ${chalk.gray(info.totalFee)} RBTC`);
+          if (parseFloat(info.totalTip) > 0) {
+            console.log(`Total Tips: ${chalk.cyan(info.totalTip)} RBTC`);
+          }
           
           console.log('\nCampaign State:');
           console.log(`  Goal Reached: ${info.goalReached ? chalk.green('Yes') : chalk.red('No')}`);

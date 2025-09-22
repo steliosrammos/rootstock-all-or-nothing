@@ -19,6 +19,7 @@ export const contributeCommand = new Command('contribute')
   .argument('<campaign>', 'Campaign contract address')
   .requiredOption('-a, --amount <amount>', 'Amount to contribute in RBTC')
   .option('-f, --fee <amount>', 'Platform fee in RBTC', '0')
+  .option('-t, --tip <amount>', 'Tip amount in RBTC (optional)', '0')
   .option('-n, --network <network>', 'Network to use', 'local')
   .option('-k, --private-key <key>', 'Private key (or use PRIVATE_KEY env var)')
   .option('-y, --yes', 'Skip confirmation prompts')
@@ -32,6 +33,7 @@ export const contributeCommand = new Command('contribute')
 
       const amount = validateEthAmount(options.amount);
       const fee = validateEthAmount(options.fee, true); // Allow zero for fees
+      const tip = validateEthAmount(options.tip, true); // Allow zero for tips
 
       const privateKey = options.privateKey || getPrivateKeyFromEnv();
       if (!privateKey) {
@@ -57,7 +59,10 @@ export const contributeCommand = new Command('contribute')
       console.log(`Current Raised: ${chalk.green(info.balance)} RBTC`);
       console.log(`Your Contribution: ${chalk.yellow(amount)} RBTC`);
       console.log(`Platform Fee: ${chalk.gray(fee)} RBTC`);
-      console.log(`Total: ${chalk.yellow((parseFloat(amount) + parseFloat(fee)).toFixed(18))} RBTC`);
+      if (parseFloat(tip) > 0) {
+        console.log(`Tip: ${chalk.cyan(tip)} RBTC`);
+      }
+      console.log(`Total: ${chalk.yellow((parseFloat(amount) + parseFloat(fee) + parseFloat(tip)).toFixed(18))} RBTC`);
       console.log(`Contributor: ${chalk.blue(formatAddress(contributor || 'Unknown'))}`);
 
       // Check campaign status
@@ -83,13 +88,16 @@ export const contributeCommand = new Command('contribute')
       const contributionSpinner = createSpinner('Sending contribution...').start();
 
       try {
-        const txHash = await manager.contribute(campaign, amount, fee);
+        const txHash = await manager.contribute(campaign, amount, fee, tip);
         contributionSpinner.stop();
 
         logSuccess('Contribution sent successfully!');
         console.log(`Transaction: ${chalk.blue(txHash)}`);
         console.log(`Amount: ${chalk.green(amount)} RBTC`);
         console.log(`Fee: ${chalk.gray(fee)} RBTC`);
+        if (parseFloat(tip) > 0) {
+          console.log(`Tip: ${chalk.cyan(tip)} RBTC`);
+        }
 
         logInfo('You can check your contribution with: aon-cli contribution info ' + campaign);
 
@@ -103,6 +111,9 @@ export const contributeCommand = new Command('contribute')
           } else if (contributionError.message.includes('execution reverted')) {
             logError('Contribution rejected by contract');
             logInfo('Check campaign status and contribution amount');
+          } else if (contributionError.message.includes('TipCannotExceedContributionAmount')) {
+            logError('Tip amount cannot exceed or equal contribution amount');
+            logInfo('Tip must be less than the contribution amount');
           } else {
             logError(`Contribution failed: ${contributionError.message}`);
           }

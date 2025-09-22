@@ -50,18 +50,7 @@ A command-line interface for interacting with AON (All-Or-Nothing) crowdfunding 
 
 After linking, you can call `aon-cli` directly from anywhere on your system!
 
-#### Method 2: Development Mode (Without Global Install)
-
-If you prefer not to install globally, you can run commands via npm scripts:
-
-```bash
-npm install
-npm run dev setup init        # Initialize config
-npm run dev accounts          # List accounts
-npm run dev deploy            # Deploy contracts
-```
-
-#### Method 3: Quick Install Script
+#### Method 2: Quick Install Script
 
 Use the automated installation script:
 
@@ -148,7 +137,8 @@ aon-cli campaign create \
 ```bash
 aon-cli contribute CAMPAIGN_ADDRESS \
   --amount "1" \
-  --fee "0.01"
+  --fee "0.01" \
+  --tip "0.1"
 ```
 
 ## Commands Reference
@@ -216,6 +206,7 @@ Required:
 
 Optional:
   -f, --fee <amount>          Platform fee in ETH (default: "0")
+  -t, --tip <amount>          Tip amount in ETH (default: "0")
   -n, --network <network>     Network to use (default: "local")
   -k, --private-key <key>     Private key
   -y, --yes                   Skip confirmation prompts
@@ -297,6 +288,7 @@ aon-cli campaign create \
 # 4. Contribute to campaign
 aon-cli contribute CAMPAIGN_ADDRESS \
   --amount "5" \
+  --tip "0.5" \
   --private-key 0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d
 
 # 5. Check campaign status

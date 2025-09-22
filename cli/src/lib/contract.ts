@@ -33,10 +33,11 @@ const AON_ABI = parseAbi([
   'function endTime() external view returns (uint256)',
   'function status() external view returns (uint8)',
   'function totalFee() external view returns (uint256)',
+  'function totalTip() external view returns (uint256)',
   'function claimOrRefundWindow() external view returns (uint256)',
   'function contributions(address) external view returns (uint256)',
-  'function contribute(uint256 fee) external payable',
-  'function contributeFor(address contributor, uint256 fee) external payable',
+  'function contribute(uint256 fee, uint256 tip) external payable',
+  'function contributeFor(address contributor, uint256 fee, uint256 tip) external payable',
   'function refund() external',
   'function claim() external',
   'function cancel() external',
@@ -65,6 +66,7 @@ const AON_ABI = parseAbi([
   'error CannotRefundZeroContribution()',
   'error CannotRefundClaimedContract()',
   'error InsufficientBalanceForRefund(uint256 balance, uint256 refundAmount, uint256 goal)',
+  'error TipCannotExceedContributionAmount()',
 ]);
 
 // Chain configurations
@@ -284,6 +286,7 @@ export class ContractManager {
       endTime,
       status,
       totalFee,
+      totalTip,
       claimOrRefundWindow,
       balance,
       isSuccessful,
@@ -295,6 +298,7 @@ export class ContractManager {
       campaign.read.endTime(),
       campaign.read.status(),
       campaign.read.totalFee(),
+      campaign.read.totalTip(),
       campaign.read.claimOrRefundWindow(),
       this.publicClient.getBalance({ address: campaignAddress as Address }),
       campaign.read.isSuccessful(),
@@ -310,6 +314,7 @@ export class ContractManager {
       status: Number(status),
       balance: formatEther(balance),
       totalFee: formatEther(totalFee),
+      totalTip: formatEther(totalTip),
       claimOrRefundWindow: Number(claimOrRefundWindow),
       goalReached: isSuccessful,
       isSuccessful,
@@ -318,7 +323,7 @@ export class ContractManager {
     };
   }
 
-  async contribute(campaignAddress: string, amountInEther: string, feeInEther: string = '0'): Promise<Hash> {
+  async contribute(campaignAddress: string, amountInEther: string, feeInEther: string = '0', tipInEther: string = '0'): Promise<Hash> {
     if (!this.walletClient) {
       throw new Error('Wallet client required for contribution');
     }
@@ -331,8 +336,9 @@ export class ContractManager {
 
     const amount = parseEther(amountInEther);
     const fee = parseEther(feeInEther);
+    const tip = parseEther(tipInEther);
 
-    const hash = await campaign.write.contribute([fee], { 
+    const hash = await campaign.write.contribute([fee, tip], { 
       value: amount,
       account: this.account!,
       chain: this.chain,

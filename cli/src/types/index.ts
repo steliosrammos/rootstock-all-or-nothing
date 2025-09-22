@@ -23,6 +23,7 @@ export interface CampaignInfo {
   status: number;
   balance: string;
   totalFee: string;
+  totalTip: string;
   claimOrRefundWindow: number;
   goalReached: boolean;
   isSuccessful: boolean;
