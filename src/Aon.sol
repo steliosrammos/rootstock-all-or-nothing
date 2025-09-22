@@ -82,6 +82,7 @@ contract Aon is Initializable, Nonces {
         Successful, // 3 - Goal reached and claim window expired
         Failed, // 4 - Time expired without reaching goal
         Finalized // 5 - All operations complete, contract can be cleaned up
+
     }
 
     // ---------------------------------------------------------------------
@@ -303,18 +304,18 @@ contract Aon is Initializable, Nonces {
      *
      * @param contributor The address that originally contributed.
      * @param fee The platform fee. The platform fee is deducted from the amount claimed by the creator, but is refunded
-    in case the campaign is cancelled or fails.
-     * @param tip The tip offered to the platform by the contributor. The tip is *not* refunded in case the campaign is 
-    cancelled or fails.
+     * in case the campaign is cancelled or fails.
+     * @param tip The tip offered to the platform by the contributor. The tip is *not* refunded in case the campaign is
+     * cancelled or fails.
      */
     function contributeFor(address contributor, uint256 fee, uint256 tip) public payable {
         isValidContribution(msg.value, tip);
-        
+
         uint256 contributionAmount = msg.value - tip;
         contributions[contributor] += contributionAmount;
         totalFee += fee;
         totalTip += tip;
-        
+
         emit ContributionReceived(contributor, contributionAmount);
     }
 
@@ -439,7 +440,7 @@ contract Aon is Initializable, Nonces {
         if (block.timestamp > deadline) revert SignatureExpired();
 
         (uint256 creatorAmount, uint256 _totalFee) = canClaimToSwapContract();
-        
+
         // Verify signature
         verifyClaimSignature(swapContract, deadline, signature);
 

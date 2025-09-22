@@ -173,8 +173,12 @@ contract AonTest is Test {
         aon.contribute{value: contributionAmount2}(0, tipAmount2);
 
         assertEq(aon.totalTip(), tipAmount1 + tipAmount2, "Total tips should accumulate");
-        assertEq(aon.contributions(contributor1), contributionAmount1 - tipAmount1, "First contribution should exclude tip");
-        assertEq(aon.contributions(contributor2), contributionAmount2 - tipAmount2, "Second contribution should exclude tip");
+        assertEq(
+            aon.contributions(contributor1), contributionAmount1 - tipAmount1, "First contribution should exclude tip"
+        );
+        assertEq(
+            aon.contributions(contributor2), contributionAmount2 - tipAmount2, "Second contribution should exclude tip"
+        );
     }
 
     function test_ContributeFor_WithTips_Success() public {
@@ -249,8 +253,12 @@ contract AonTest is Test {
         aon.claim();
 
         assertEq(address(aon).balance, 0, "Contract balance should be zero after claim");
-        assertEq(creator.balance, creatorInitialBalance + creatorAmount, "Creator should receive the funds (excluding tips)");
-        assertEq(factoryOwner.balance, factoryInitialBalance + totalFee + totalTip, "Factory should receive fees and tips");
+        assertEq(
+            creator.balance, creatorInitialBalance + creatorAmount, "Creator should receive the funds (excluding tips)"
+        );
+        assertEq(
+            factoryOwner.balance, factoryInitialBalance + totalFee + totalTip, "Factory should receive fees and tips"
+        );
     }
 
     function test_Claim_FailsIfNotCreator() public {
@@ -404,7 +412,9 @@ contract AonTest is Test {
         aon.refund();
 
         assertEq(
-            contributor1.balance, contributorInitialBalance + expectedRefund, "Contributor should get contribution back (not tip)"
+            contributor1.balance,
+            contributorInitialBalance + expectedRefund,
+            "Contributor should get contribution back (not tip)"
         );
         assertEq(factoryOwner.balance, factoryInitialBalance, "Factory should not receive tips on refund");
         assertEq(aon.contributions(contributor1), 0, "Contribution record should be cleared");
@@ -432,7 +442,9 @@ contract AonTest is Test {
         aon.refund();
 
         assertEq(
-            contributor1.balance, contributorInitialBalance + expectedRefund, "Contributor should get contribution back (not tip)"
+            contributor1.balance,
+            contributorInitialBalance + expectedRefund,
+            "Contributor should get contribution back (not tip)"
         );
         assertEq(factoryOwner.balance, factoryInitialBalance, "Factory should not receive tips on refund");
         assertEq(aon.totalTip(), tipAmount, "Total tip should remain unchanged");
