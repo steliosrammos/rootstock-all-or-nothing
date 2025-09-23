@@ -257,13 +257,6 @@ contract Aon is Initializable, Nonces {
         return (creatorAmount, nonce);
     }
 
-    function canClaimToSwapContract() internal view returns (uint256) {
-        isValidClaim();
-
-        uint256 creatorAmount = claimableBalance();
-        return (creatorAmount);
-    }
-
     function canCancel() public view returns (bool) {
         if (isCancelled()) revert CannotCancelCancelledContract();
         if (isClaimed()) revert CannotCancelClaimedContract();
@@ -459,7 +452,8 @@ contract Aon is Initializable, Nonces {
     ) external {
         if (block.timestamp > deadline) revert SignatureExpired();
 
-        (uint256 creatorAmount) = canClaimToSwapContract();
+        isValidClaim();
+        uint256 creatorAmount = claimableBalance();
 
         // Verify signature
         verifyClaimSignature(swapContract, deadline, signature);
