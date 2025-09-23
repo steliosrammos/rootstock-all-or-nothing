@@ -635,7 +635,7 @@ contract AonTest is Test {
         // Execute refund with signature
         vm.expectEmit(true, true, true, true);
         emit ContributionRefunded(contributor1, contributionAmount);
-        aon.refundToSwapContract(contributor1, swapContract, deadline, signature, bytes32(0), address(0x123), 3600);
+        aon.refundToSwapContract(contributor1, swapContract, deadline, signature, bytes32(0), address(0x123), 3600, 0);
 
         // Verify refund was successful
         assertEq(
@@ -643,6 +643,81 @@ contract AonTest is Test {
         );
         assertEq(aon.contributions(contributor1), 0, "Contribution should be cleared");
         assertEq(aon.nonces(contributor1), nonce + 1, "Nonce should be incremented");
+    }
+
+    function test_RefundToSwapContract_WithProcessingFee_Success() public {
+        uint256 contributionAmount = 1 ether;
+        vm.prank(contributor1);
+        aon.contribute{value: contributionAmount}(0, 0);
+        
+        uint256 processingFee = 0.1 ether;
+        uint256 expectedRefund = contributionAmount - processingFee;
+
+        // Cancel campaign to allow refunds
+        vm.prank(creator);
+        aon.cancel();
+
+        // Create signature for refund
+        address swapContract = address(0x123);
+        uint256 deadline = block.timestamp + 1 hours;
+        uint256 nonce = aon.nonces(contributor1);
+
+        bytes memory signature = _createRefundSignature(
+            contributor1,
+            swapContract,
+            expectedRefund,
+            deadline,
+            contributor1PrivateKey
+        );
+
+        uint256 initialBalance = swapContract.balance;
+
+        // Execute refund with signature
+        vm.expectEmit(true, true, true, true);
+        emit ContributionRefunded(contributor1, expectedRefund);
+        aon.refundToSwapContract(
+            contributor1, 
+            swapContract, 
+            deadline, 
+            signature, 
+            bytes32(0), 
+            address(0x123), 
+            3600, 
+            processingFee
+        );
+
+        // Verify refund was successful
+        assertEq(swapContract.balance, initialBalance + expectedRefund, "Swap contract should receive refund");
+        assertEq(aon.contributions(contributor1), 0, "Contribution should be cleared");
+        assertEq(aon.nonces(contributor1), nonce + 1, "Nonce should be incremented");
+    }
+
+    // Helper function to create refund signature
+    function _createRefundSignature(
+        address contributor,
+        address swapContract,
+        uint256 amount,
+        uint256 deadline,
+        uint256 privateKey
+    ) internal view returns (bytes memory) {
+        uint256 nonce = aon.nonces(contributor);
+        
+        bytes32 structHash = keccak256(
+            abi.encode(
+                keccak256(
+                    "Refund(address contributor,address swapContract,uint256 amount,uint256 nonce,uint256 deadline)"
+                ),
+                contributor,
+                swapContract,
+                amount,
+                nonce,
+                deadline
+            )
+        );
+
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", aon.domainSeparator(), structHash));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(privateKey, digest);
+        return abi.encodePacked(r, s, v);
     }
 
     function test_RefundToSwapContract_FailsWithInvalidSignature() public {
@@ -678,7 +753,7 @@ contract AonTest is Test {
         bytes memory signature = abi.encodePacked(r, s, v);
 
         vm.expectRevert(Aon.InvalidSignature.selector);
-        aon.refundToSwapContract(contributor1, swapContract, deadline, signature, bytes32(0), address(0x123), 3600);
+        aon.refundToSwapContract(contributor1, swapContract, deadline, signature, bytes32(0), address(0x123), 3600, 0);
     }
 
     function test_RefundToSwapContract_FailsWithExpiredSignature() public {
@@ -716,7 +791,7 @@ contract AonTest is Test {
         vm.warp(deadline + 1);
 
         vm.expectRevert(Aon.SignatureExpired.selector);
-        aon.refundToSwapContract(contributor1, swapContract, deadline, signature, bytes32(0), address(0x123), 3600);
+        aon.refundToSwapContract(contributor1, swapContract, deadline, signature, bytes32(0), address(0x123), 3600, 0);
     }
 
     function test_ClaimToSwapContract_Success() public {

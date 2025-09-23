@@ -61,6 +61,7 @@ contract Aon is Initializable, Nonces {
     error CannotRefundRefundedContract();
     error CannotRefundZeroContribution();
     error InsufficientBalanceForRefund(uint256 balance, uint256 refundAmount, uint256 goal);
+    error ProcessingFeeHigherThanRefundAmount(uint256 refundAmount, uint256 processingFee);
     error FailedToRefund(bytes reason);
 
     // EIP-712 / signature errors
@@ -355,6 +356,7 @@ contract Aon is Initializable, Nonces {
      * @param preimageHash The preimage hash for the lock.
      * @param claimAddress The address that can claim the locked funds.
      * @param timelock     The timelock value for the lock.
+     * @param processingFee The fee for the processing of the refund.
      */
     function refundToSwapContract(
         address contributor,
@@ -363,23 +365,21 @@ contract Aon is Initializable, Nonces {
         bytes calldata signature,
         bytes32 preimageHash,
         address claimAddress,
-        uint256 timelock
+        uint256 timelock,
+        uint256 processingFee
     ) external {
         if (block.timestamp > deadline) revert SignatureExpired();
 
         (uint256 refundAmount, uint256 nonce) = isValidRefund(contributor);
 
+        if ( processingFee > refundAmount) revert ProcessingFeeHigherThanRefundAmount(refundAmount, processingFee);
+
+        uint256 finalRefundAmount = refundAmount - processingFee;
+
         // -----------------------------------------------------------------
         // Verify EIP-712 signature
         // -----------------------------------------------------------------
-        bytes32 structHash = keccak256(
-            abi.encode(_REFUND_TO_SWAP_CONTRACT_TYPEHASH, contributor, swapContract, refundAmount, nonce, deadline)
-        );
-
-        bytes32 digest = MessageHashUtils.toTypedDataHash(_DOMAIN_SEPARATOR, structHash);
-        address signer = ECDSA.recover(digest, signature);
-
-        require(signer == contributor, InvalidSignature());
+        verifyEIP712SignatureForRefund(contributor, swapContract, refundAmount, nonce, deadline, signature, processingFee);
 
         // Consume nonce to prevent replay
         _useNonce(contributor);
@@ -389,12 +389,22 @@ contract Aon is Initializable, Nonces {
         // -----------------------------------------------------------------
         contributions[contributor] = 0;
 
-        (bool success, bytes memory reason) = swapContract.call{value: refundAmount}(
+        (bool success, bytes memory reason) = swapContract.call{value: finalRefundAmount}(
             abi.encodeWithSignature("lock(bytes32,address,uint256)", preimageHash, claimAddress, timelock)
         );
         require(success, FailedToRefund(reason));
 
-        emit ContributionRefunded(contributor, refundAmount);
+        emit ContributionRefunded(contributor, finalRefundAmount);
+    }
+
+    function verifyEIP712SignatureForRefund(address contributor, address swapContract, uint256 refundAmount, uint256 nonce, uint256 deadline, bytes calldata signature, uint256 processingFee) private view {
+        bytes32 structHash = keccak256(
+            abi.encode(_REFUND_TO_SWAP_CONTRACT_TYPEHASH, contributor, swapContract, refundAmount - processingFee, nonce, deadline)
+        );
+        bytes32 digest = MessageHashUtils.toTypedDataHash(_DOMAIN_SEPARATOR, structHash);
+        address signer = ECDSA.recover(digest, signature);
+
+        require(signer == contributor, InvalidSignature());
     }
 
     function claim() external {
