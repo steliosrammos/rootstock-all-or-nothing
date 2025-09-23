@@ -172,12 +172,20 @@ contract AonTest is Test {
         vm.prank(contributor2);
         aon.contribute{value: contributionAmount2}(0, contributorFeeAmount2);
 
-        assertEq(aon.totalContributorFee(), contributorFeeAmount1 + contributorFeeAmount2, "Total contributor fees should accumulate");
         assertEq(
-            aon.contributions(contributor1), contributionAmount1 - contributorFeeAmount1, "First contribution should exclude contributor fee"
+            aon.totalContributorFee(),
+            contributorFeeAmount1 + contributorFeeAmount2,
+            "Total contributor fees should accumulate"
         );
         assertEq(
-            aon.contributions(contributor2), contributionAmount2 - contributorFeeAmount2, "Second contribution should exclude contributor fee"
+            aon.contributions(contributor1),
+            contributionAmount1 - contributorFeeAmount1,
+            "First contribution should exclude contributor fee"
+        );
+        assertEq(
+            aon.contributions(contributor2),
+            contributionAmount2 - contributorFeeAmount2,
+            "Second contribution should exclude contributor fee"
         );
     }
 
@@ -210,7 +218,6 @@ contract AonTest is Test {
         // Fast-forward past the end time
         vm.warp(aon.endTime() + 1 days);
         assertTrue(aon.isSuccessful(), "Campaign should be successful");
-
 
         // Creator claims the funds
         uint256 contractBalance = address(aon).balance;
@@ -268,7 +275,9 @@ contract AonTest is Test {
 
         assertEq(address(aon).balance, 0, "Contract balance should be zero after claim");
         assertEq(
-            creator.balance, creatorInitialBalance + creatorAmount, "Creator should receive the funds (excluding contributor fees)"
+            creator.balance,
+            creatorInitialBalance + creatorAmount,
+            "Creator should receive the funds (excluding contributor fees)"
         );
         assertEq(
             factoryOwner.balance, factoryInitialBalance + totalFee, "Factory should receive fees and contributor fees"
@@ -371,7 +380,9 @@ contract AonTest is Test {
         vm.prank(contributor1);
         aon.refund(processingFee);
         assertEq(
-            contributor1.balance, contributorInitialBalance + contributionAmount - processingFee, "Contributor should get money back"
+            contributor1.balance,
+            contributorInitialBalance + contributionAmount - processingFee,
+            "Contributor should get money back"
         );
     }
 

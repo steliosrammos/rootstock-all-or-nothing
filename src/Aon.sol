@@ -83,6 +83,7 @@ contract Aon is Initializable, Nonces {
         Successful, // 3 - Goal reached and claim window expired
         Failed, // 4 - Time expired without reaching goal
         Finalized // 5 - All operations complete, contract can be cleaned up
+
     }
 
     // ---------------------------------------------------------------------
@@ -313,7 +314,7 @@ contract Aon is Initializable, Nonces {
      * @param creatorFee The creator fee. The creator fee is deducted from the amount claimed by the creator, but is refunded
      * in case the campaign is cancelled or fails.
      * @param contributorFee The contributor fee. The contributor fee is deducted from the amount refunded to the contributor. It
-     can include fees like the payment processing fee, a platform tip, etc.
+     *  can include fees like the payment processing fee, a platform tip, etc.
      */
     function contributeFor(address contributor, uint256 creatorFee, uint256 contributorFee) public payable {
         isValidContribution(msg.value, contributorFee);
