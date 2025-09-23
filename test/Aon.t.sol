@@ -26,7 +26,7 @@ contract AonTest is Test {
 
     event ContributionReceived(address indexed contributor, uint256 amount);
     event ContributionRefunded(address indexed contributor, uint256 amount);
-    event Claimed(uint256 creatorAmount, uint256 totalFee);
+    event Claimed(uint256 creatorAmount, uint256 creatorFeeAmount, uint256 contributorFeeAmount);
     event Cancelled();
     event Refunded();
     event FundsSwiped();
@@ -122,78 +122,78 @@ contract AonTest is Test {
     }
 
     /*
-    * TIP TESTS
+    * CONTRIBUTOR FEE TESTS
     */
 
-    function test_Contribute_WithTip_Success() public {
+    function test_Contribute_WithContributorFee_Success() public {
         uint256 contributionAmount = 1 ether;
-        uint256 tipAmount = 0.1 ether;
-        uint256 expectedContribution = contributionAmount - tipAmount;
+        uint256 contributorFeeAmount = 0.1 ether;
+        uint256 expectedContribution = contributionAmount - contributorFeeAmount;
 
         vm.prank(contributor1);
         vm.expectEmit(true, true, true, true);
         emit ContributionReceived(contributor1, expectedContribution);
-        aon.contribute{value: contributionAmount}(0, tipAmount);
+        aon.contribute{value: contributionAmount}(0, contributorFeeAmount);
 
-        assertEq(address(aon).balance, contributionAmount, "Contract balance should include tip");
-        assertEq(aon.contributions(contributor1), expectedContribution, "Contribution should exclude tip");
-        assertEq(aon.totalTip(), tipAmount, "Total tip should be tracked");
+        assertEq(address(aon).balance, contributionAmount, "Contract balance should include contributor fee");
+        assertEq(aon.contributions(contributor1), expectedContribution, "Contribution should exclude contributor fee");
+        assertEq(aon.totalContributorFee(), contributorFeeAmount, "Total contributor fee should be tracked");
     }
 
-    function test_Contribute_WithTip_FailsIfTipExceedsContribution() public {
+    function test_Contribute_WithContributorFee_FailsIfContributorFeeExceedsContribution() public {
         uint256 contributionAmount = 1 ether;
-        uint256 tipAmount = 1.1 ether; // Tip exceeds contribution
+        uint256 contributorFeeAmount = 1.1 ether; // Contributor fee exceeds contribution
 
         vm.prank(contributor1);
-        vm.expectRevert(Aon.TipCannotExceedContributionAmount.selector);
-        aon.contribute{value: contributionAmount}(0, tipAmount);
+        vm.expectRevert(Aon.ContributorFeeCannotExceedContributionAmount.selector);
+        aon.contribute{value: contributionAmount}(0, contributorFeeAmount);
     }
 
-    function test_Contribute_WithTip_FailsIfTipEqualsContribution() public {
+    function test_Contribute_WithContributorFee_FailsIfContributorFeeEqualsContribution() public {
         uint256 contributionAmount = 1 ether;
-        uint256 tipAmount = 1 ether; // Tip equals contribution (should fail)
+        uint256 contributorFeeAmount = 1 ether; // Contributor fee equals contribution (should fail)
 
         vm.prank(contributor1);
-        vm.expectRevert(Aon.TipCannotExceedContributionAmount.selector);
-        aon.contribute{value: contributionAmount}(0, tipAmount);
+        vm.expectRevert(Aon.ContributorFeeCannotExceedContributionAmount.selector);
+        aon.contribute{value: contributionAmount}(0, contributorFeeAmount);
     }
 
-    function test_Contribute_MultipleTips_AccumulateCorrectly() public {
+    function test_Contribute_MultipleContributorFees_AccumulateCorrectly() public {
         uint256 contributionAmount1 = 1 ether;
-        uint256 tipAmount1 = 0.1 ether;
+        uint256 contributorFeeAmount1 = 0.1 ether;
         uint256 contributionAmount2 = 2 ether;
-        uint256 tipAmount2 = 0.2 ether;
+        uint256 contributorFeeAmount2 = 0.2 ether;
 
-        // First contribution with tip
+        // First contribution with contributor fee
         vm.prank(contributor1);
-        aon.contribute{value: contributionAmount1}(0, tipAmount1);
+        aon.contribute{value: contributionAmount1}(0, contributorFeeAmount1);
 
-        // Second contribution with tip
+        // Second contribution with contributor fee
         vm.prank(contributor2);
-        aon.contribute{value: contributionAmount2}(0, tipAmount2);
+        aon.contribute{value: contributionAmount2}(0, contributorFeeAmount2);
 
-        assertEq(aon.totalTip(), tipAmount1 + tipAmount2, "Total tips should accumulate");
+        assertEq(aon.totalContributorFee(), contributorFeeAmount1 + contributorFeeAmount2, "Total contributor fees should accumulate");
         assertEq(
-            aon.contributions(contributor1), contributionAmount1 - tipAmount1, "First contribution should exclude tip"
+            aon.contributions(contributor1), contributionAmount1 - contributorFeeAmount1, "First contribution should exclude contributor fee"
         );
         assertEq(
-            aon.contributions(contributor2), contributionAmount2 - tipAmount2, "Second contribution should exclude tip"
+            aon.contributions(contributor2), contributionAmount2 - contributorFeeAmount2, "Second contribution should exclude contributor fee"
         );
     }
 
-    function test_ContributeFor_WithTips_Success() public {
+    function test_ContributeFor_WithContributorFees_Success() public {
         uint256 contributionAmount = 1 ether;
-        uint256 tipAmount = 0.1 ether;
-        uint256 expectedContribution = contributionAmount - tipAmount;
+        uint256 contributorFeeAmount = 0.1 ether;
+        uint256 expectedContribution = contributionAmount - contributorFeeAmount;
 
         vm.prank(factoryOwner); // Factory calls contributeFor
         vm.expectEmit(true, true, true, true);
         emit ContributionReceived(contributor1, expectedContribution);
-        aon.contributeFor{value: contributionAmount}(contributor1, 0, tipAmount);
+        aon.contributeFor{value: contributionAmount}(contributor1, 0, contributorFeeAmount);
 
-        assertEq(address(aon).balance, contributionAmount, "Contract balance should include tip");
-        assertEq(aon.contributions(contributor1), expectedContribution, "Contribution should exclude tip");
-        assertEq(aon.totalTip(), tipAmount, "Total tip should be tracked");
+        assertEq(address(aon).balance, contributionAmount, "Contract balance should include contributor fee");
+        assertEq(aon.contributions(contributor1), expectedContribution, "Contribution should exclude contributor fee");
+        assertEq(aon.totalContributorFee(), contributorFeeAmount, "Total contributor fee should be tracked");
     }
 
     /*
@@ -211,29 +211,43 @@ contract AonTest is Test {
         vm.warp(aon.endTime() + 1 days);
         assertTrue(aon.isSuccessful(), "Campaign should be successful");
 
+
         // Creator claims the funds
         uint256 contractBalance = address(aon).balance;
-        uint256 totalFee = aon.totalFee();
+        uint256 totalFee = aon.totalCreatorFee() + aon.totalContributorFee();
         uint256 creatorAmount = contractBalance - totalFee;
         uint256 creatorInitialBalance = creator.balance;
         uint256 factoryInitialBalance = factoryOwner.balance;
 
-        vm.prank(creator);
+        vm.startPrank(creator);
         vm.expectEmit(true, true, false, true);
-        emit Claimed(creatorAmount, totalFee);
+        emit Claimed(creatorAmount, aon.totalCreatorFee(), aon.totalContributorFee());
         aon.claim();
+        vm.stopPrank();
 
         assertEq(address(aon).balance, 0, "Contract balance should be zero after claim");
         assertEq(creator.balance, creatorInitialBalance + creatorAmount, "Creator should receive the funds");
         assertEq(factoryOwner.balance, factoryInitialBalance + totalFee, "Factory should receive the fee");
     }
 
-    function test_Claim_WithTips_Success() public {
-        // Contributors meet the goal with tips
+    function test_Claim_WithContributorFees_Failure() public {
+        // Contributors meet the goal with contributor fees, but goal is not reached
         vm.prank(contributor1);
-        aon.contribute{value: 5 ether}(0, 0.5 ether); // 4.5 ether contribution, 0.5 ether tip
+        aon.contribute{value: 5 ether}(0, 0.5 ether); // 4.5 ether contribution, 0.5 ether contributor fee
         vm.prank(contributor2);
-        aon.contribute{value: 5 ether}(0, 0.5 ether); // 4.5 ether contribution, 0.5 ether tip
+        aon.contribute{value: 5 ether}(0, 0.5 ether); // 4.5 ether contribution, 0.5 ether contributor fee
+
+        // Fast-forward past the end time
+        vm.warp(aon.endTime() + 1 days);
+        assertTrue(aon.isFailed(), "Campaign should have failed");
+    }
+
+    function test_Claim_WithContributorFees_Success() public {
+        // Contributors meet the goal with contributor fees
+        vm.prank(contributor1);
+        aon.contribute{value: 6 ether}(0, 0.5 ether); // 5.5 ether contribution, 0.5 ether contributor fee
+        vm.prank(contributor2);
+        aon.contribute{value: 6 ether}(0, 0.5 ether); // 5.5 ether contribution, 0.5 ether contributor fee
 
         // Fast-forward past the end time
         vm.warp(aon.endTime() + 1 days);
@@ -241,23 +255,23 @@ contract AonTest is Test {
 
         // Creator claims the funds
         uint256 contractBalance = address(aon).balance;
-        uint256 totalFee = aon.totalFee();
-        uint256 totalTip = aon.totalTip();
-        uint256 creatorAmount = contractBalance - totalFee - totalTip;
+        uint256 totalFee = aon.totalCreatorFee() + aon.totalContributorFee();
+        uint256 creatorAmount = contractBalance - totalFee;
         uint256 creatorInitialBalance = creator.balance;
         uint256 factoryInitialBalance = factoryOwner.balance;
 
-        vm.prank(creator);
+        vm.startPrank(creator);
         vm.expectEmit(true, true, false, true);
-        emit Claimed(creatorAmount, totalFee);
+        emit Claimed(creatorAmount, aon.totalCreatorFee(), aon.totalContributorFee());
         aon.claim();
+        vm.stopPrank();
 
         assertEq(address(aon).balance, 0, "Contract balance should be zero after claim");
         assertEq(
-            creator.balance, creatorInitialBalance + creatorAmount, "Creator should receive the funds (excluding tips)"
+            creator.balance, creatorInitialBalance + creatorAmount, "Creator should receive the funds (excluding contributor fees)"
         );
         assertEq(
-            factoryOwner.balance, factoryInitialBalance + totalFee + totalTip, "Factory should receive fees and tips"
+            factoryOwner.balance, factoryInitialBalance + totalFee, "Factory should receive fees and contributor fees"
         );
     }
 
@@ -320,7 +334,7 @@ contract AonTest is Test {
         vm.prank(contributor1);
         vm.expectEmit(true, true, true, true);
         emit ContributionRefunded(contributor1, contributionAmount);
-        aon.refund();
+        aon.refund(0);
 
         assertEq(
             contributor1.balance, contributorInitialBalance + contributionAmount, "Contributor should get money back"
@@ -338,10 +352,43 @@ contract AonTest is Test {
 
         uint256 contributorInitialBalance = contributor1.balance;
         vm.prank(contributor1);
-        aon.refund();
+        aon.refund(0);
         assertEq(
             contributor1.balance, contributorInitialBalance + contributionAmount, "Contributor should get money back"
         );
+    }
+
+    function test_Refund_WithProcessingFee_Success() public {
+        uint256 contributionAmount = 1 ether;
+        uint256 processingFee = 0.1 ether;
+        vm.prank(contributor1);
+        aon.contribute{value: contributionAmount}(0, 0);
+
+        vm.prank(creator);
+        aon.cancel();
+
+        uint256 contributorInitialBalance = contributor1.balance;
+        vm.prank(contributor1);
+        aon.refund(processingFee);
+        assertEq(
+            contributor1.balance, contributorInitialBalance + contributionAmount - processingFee, "Contributor should get money back"
+        );
+    }
+
+    function test_Refund_WithProcessingFee_Failure() public {
+        uint256 contributionAmount = 1 ether;
+        uint256 processingFee = 1.1 ether;
+        vm.prank(contributor1);
+        aon.contribute{value: contributionAmount}(0, 0);
+
+        vm.prank(creator);
+        aon.cancel();
+
+        vm.prank(contributor1);
+        vm.expectRevert(
+            abi.encodeWithSelector(Aon.ProcessingFeeHigherThanRefundAmount.selector, contributionAmount, processingFee)
+        );
+        aon.refund(processingFee);
     }
 
     function test_Refund_SuccessIfUnclaimed() public {
@@ -355,7 +402,7 @@ contract AonTest is Test {
 
         uint256 contributorInitialBalance = contributor1.balance;
         vm.prank(contributor1);
-        aon.refund();
+        aon.refund(0);
         assertEq(
             contributor1.balance, contributorInitialBalance + contributionAmount, "Contributor should get money back"
         );
@@ -367,7 +414,7 @@ contract AonTest is Test {
 
         vm.prank(contributor1); // Contributor1 has 0 contribution
         vm.expectRevert(Aon.CannotRefundZeroContribution.selector);
-        aon.refund();
+        aon.refund(0);
     }
 
     function test_Refund_FailsIfItDropsBalanceBelowGoal() public {
@@ -386,17 +433,17 @@ contract AonTest is Test {
                 Aon.InsufficientBalanceForRefund.selector, address(aon).balance, contributionAmount, GOAL
             )
         );
-        aon.refund();
+        aon.refund(0);
     }
 
-    function test_Refund_WithTips_TipsNotRefunded() public {
+    function test_Refund_WithContributorFees_ContributorFeesNotRefunded() public {
         uint256 contributionAmount = 1 ether;
-        uint256 tipAmount = 0.1 ether;
-        uint256 expectedRefund = contributionAmount - tipAmount;
+        uint256 contributorFeeAmount = 0.1 ether;
+        uint256 expectedRefund = contributionAmount - contributorFeeAmount;
 
-        // Contribute with tip
+        // Contribute with contributor fee
         vm.prank(contributor1);
-        aon.contribute{value: contributionAmount}(0, tipAmount);
+        aon.contribute{value: contributionAmount}(0, contributorFeeAmount);
 
         // Let campaign fail
         vm.warp(aon.endTime() + 1 days);
@@ -405,30 +452,30 @@ contract AonTest is Test {
         uint256 contributorInitialBalance = contributor1.balance;
         uint256 factoryInitialBalance = factoryOwner.balance;
 
-        // Refund should only return contribution amount, not tip
+        // Refund should only return contribution amount, not contributor fee
         vm.prank(contributor1);
         vm.expectEmit(true, true, true, true);
         emit ContributionRefunded(contributor1, expectedRefund);
-        aon.refund();
+        aon.refund(0);
 
         assertEq(
             contributor1.balance,
             contributorInitialBalance + expectedRefund,
-            "Contributor should get contribution back (not tip)"
+            "Contributor should get contribution back (not contributor fee)"
         );
-        assertEq(factoryOwner.balance, factoryInitialBalance, "Factory should not receive tips on refund");
+        assertEq(factoryOwner.balance, factoryInitialBalance, "Factory should not receive contributor fees on refund");
         assertEq(aon.contributions(contributor1), 0, "Contribution record should be cleared");
-        assertEq(aon.totalTip(), tipAmount, "Total tip should remain unchanged");
+        assertEq(aon.totalContributorFee(), contributorFeeAmount, "Total contributor fee should remain unchanged");
     }
 
-    function test_Refund_WithTips_AfterCancellation_TipsNotRefunded() public {
+    function test_Refund_WithContributorFees_AfterCancellation_ContributorFeesNotRefunded() public {
         uint256 contributionAmount = 1 ether;
-        uint256 tipAmount = 0.1 ether;
-        uint256 expectedRefund = contributionAmount - tipAmount;
+        uint256 contributorFeeAmount = 0.1 ether;
+        uint256 expectedRefund = contributionAmount - contributorFeeAmount;
 
-        // Contribute with tip
+        // Contribute with contributor fee
         vm.prank(contributor1);
-        aon.contribute{value: contributionAmount}(0, tipAmount);
+        aon.contribute{value: contributionAmount}(0, contributorFeeAmount);
 
         // Cancel campaign
         vm.prank(creator);
@@ -437,17 +484,17 @@ contract AonTest is Test {
         uint256 contributorInitialBalance = contributor1.balance;
         uint256 factoryInitialBalance = factoryOwner.balance;
 
-        // Refund should only return contribution amount, not tip
+        // Refund should only return contribution amount, not contributor fee
         vm.prank(contributor1);
-        aon.refund();
+        aon.refund(0);
 
         assertEq(
             contributor1.balance,
             contributorInitialBalance + expectedRefund,
-            "Contributor should get contribution back (not tip)"
+            "Contributor should get contribution back (not contributor fee)"
         );
-        assertEq(factoryOwner.balance, factoryInitialBalance, "Factory should not receive tips on refund");
-        assertEq(aon.totalTip(), tipAmount, "Total tip should remain unchanged");
+        assertEq(factoryOwner.balance, factoryInitialBalance, "Factory should not receive contributor fees on refund");
+        assertEq(aon.totalContributorFee(), contributorFeeAmount, "Total contributor fee should remain unchanged");
     }
 
     /*
@@ -649,7 +696,7 @@ contract AonTest is Test {
         uint256 contributionAmount = 1 ether;
         vm.prank(contributor1);
         aon.contribute{value: contributionAmount}(0, 0);
-        
+
         uint256 processingFee = 0.1 ether;
         uint256 expectedRefund = contributionAmount - processingFee;
 
@@ -662,13 +709,8 @@ contract AonTest is Test {
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce = aon.nonces(contributor1);
 
-        bytes memory signature = _createRefundSignature(
-            contributor1,
-            swapContract,
-            expectedRefund,
-            deadline,
-            contributor1PrivateKey
-        );
+        bytes memory signature =
+            _createRefundSignature(contributor1, swapContract, expectedRefund, deadline, contributor1PrivateKey);
 
         uint256 initialBalance = swapContract.balance;
 
@@ -676,14 +718,7 @@ contract AonTest is Test {
         vm.expectEmit(true, true, true, true);
         emit ContributionRefunded(contributor1, expectedRefund);
         aon.refundToSwapContract(
-            contributor1, 
-            swapContract, 
-            deadline, 
-            signature, 
-            bytes32(0), 
-            address(0x123), 
-            3600, 
-            processingFee
+            contributor1, swapContract, deadline, signature, bytes32(0), address(0x123), 3600, processingFee
         );
 
         // Verify refund was successful
@@ -701,7 +736,7 @@ contract AonTest is Test {
         uint256 privateKey
     ) internal view returns (bytes memory) {
         uint256 nonce = aon.nonces(contributor);
-        
+
         bytes32 structHash = keccak256(
             abi.encode(
                 keccak256(
@@ -832,12 +867,12 @@ contract AonTest is Test {
         uint256 swapContractInitialBalance = swapContract.balance;
 
         // Get the actual platform fee from the contract
-        uint256 platformFee = aon.totalFee();
+        uint256 platformFee = aon.totalCreatorFee() + aon.totalContributorFee();
         uint256 creatorAmount = claimAmount - platformFee;
 
         // Execute claim with signature
         vm.expectEmit(true, true, true, true);
-        emit Claimed(creatorAmount, platformFee);
+        emit Claimed(creatorAmount, aon.totalCreatorFee(), aon.totalContributorFee());
         aon.claimToSwapContract(swapContract, deadline, signature, bytes32(0), address(0x456), 7200);
 
         // Verify claim was successful
@@ -931,19 +966,19 @@ contract MaliciousRefund {
         aon = _aon;
     }
 
-    function contribute(uint256 fee, uint256 tip) external payable {
-        aon.contribute{value: msg.value}(fee, tip);
+    function contribute(uint256 fee, uint256 contributorFee) external payable {
+        aon.contribute{value: msg.value}(fee, contributorFee);
     }
 
     function startAttack() external {
-        aon.refund();
+        aon.refund(0);
     }
 
     // This function is called when the contract receives Ether.
     // It will try to call refund() again, exploiting a potential re-entrancy vulnerability.
     receive() external payable {
         // The re-entrant call should fail if the contract is secure.
-        aon.refund();
+        aon.refund(0);
     }
 }
 
