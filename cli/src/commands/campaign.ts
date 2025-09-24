@@ -119,9 +119,9 @@ export const campaignCommand = new Command('campaign')
           console.log(`Status: ${formatCampaignStatus(info.status)}`);
           console.log(`End Time: ${chalk.gray(formatTime(info.endTime))}`);
           console.log(`Time Remaining: ${formatTimeRemaining(info.endTime)}`);
-          console.log(`Platform Fees: ${chalk.gray(info.totalFee)} RBTC`);
-          if (parseFloat(info.totalTip) > 0) {
-            console.log(`Total Tips: ${chalk.cyan(info.totalTip)} RBTC`);
+          console.log(`Creator Fees: ${chalk.gray(info.totalCreatorFee)} RBTC`);
+          if (parseFloat(info.totalContributorFee) > 0) {
+            console.log(`Contributor Fees: ${chalk.cyan(info.totalContributorFee)} RBTC`);
           }
           
           console.log('\nCampaign State:');

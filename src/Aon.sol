@@ -16,7 +16,7 @@ contract Aon is Initializable, Nonces {
     * EVENTS
     */
     // Contract events
-    event Claimed(uint256 creatorAmount, uint256 platformFeeAmount);
+    event Claimed(uint256 creatorAmount, uint256 creatorFeeAmount, uint256 contributorFeeAmount);
     event Cancelled();
     event FundsSwiped();
 
@@ -34,7 +34,7 @@ contract Aon is Initializable, Nonces {
     * STATE ERRORS
     */
     // Contribute Errors
-    error TipCannotExceedContributionAmount();
+    error ContributorFeeCannotExceedContributionAmount();
     error CannotContributeToCancelledContract();
     error CannotContributeToClaimedContract();
     error CannotContributeToFinalizedContract();
@@ -61,6 +61,7 @@ contract Aon is Initializable, Nonces {
     error CannotRefundRefundedContract();
     error CannotRefundZeroContribution();
     error InsufficientBalanceForRefund(uint256 balance, uint256 refundAmount, uint256 goal);
+    error ProcessingFeeHigherThanRefundAmount(uint256 refundAmount, uint256 processingFee);
     error FailedToRefund(bytes reason);
 
     // EIP-712 / signature errors
@@ -107,8 +108,8 @@ contract Aon is Initializable, Nonces {
     address payable public creator;
     uint256 public goal;
     uint256 public endTime;
-    uint256 public totalFee;
-    uint256 public totalTip;
+    uint256 public totalCreatorFee;
+    uint256 public totalContributorFee;
     uint256 public claimOrRefundWindow;
 
     /*
@@ -156,9 +157,13 @@ contract Aon is Initializable, Nonces {
         return _DOMAIN_SEPARATOR;
     }
 
+    function goalBalance() external view returns (uint256) {
+        return address(this).balance - totalContributorFee;
+    }
+
     /// @notice Returns the amount of funds available for the creator to claim.
-    function claimAmount() public view returns (uint256) {
-        return address(this).balance - totalFee - totalTip;
+    function claimableBalance() public view returns (uint256) {
+        return address(this).balance - totalCreatorFee - totalContributorFee;
     }
 
     /// @notice Returns true if the address is the creator of the AON campaign.
@@ -210,9 +215,12 @@ contract Aon is Initializable, Nonces {
     /*
     * Validation Functions
     */
-    function isValidRefund(address contributor) public view returns (uint256, uint256) {
+    function isValidRefund(address contributor, uint256 processingFee) public view returns (uint256, uint256) {
         uint256 refundAmount = contributions[contributor];
         if (refundAmount <= 0) revert CannotRefundZeroContribution();
+        if (processingFee > refundAmount) revert ProcessingFeeHigherThanRefundAmount(refundAmount, processingFee);
+
+        refundAmount -= processingFee;
 
         if (isClaimed()) revert CannotRefundClaimedContract();
 
@@ -239,21 +247,14 @@ contract Aon is Initializable, Nonces {
         if (!goalReachedStrategy.isGoalReached()) revert GoalNotReached();
     }
 
-    function canClaim(address _address) public view returns (uint256, uint256, uint256) {
+    function canClaim(address _address) public view returns (uint256, uint256) {
         if (!isCreator(_address)) revert OnlyCreatorCanClaim();
         isValidClaim();
 
         uint256 nonce = nonces(_address);
-        uint256 creatorAmount = claimAmount();
+        uint256 creatorAmount = claimableBalance();
 
-        return (creatorAmount, totalFee, nonce);
-    }
-
-    function canClaimToSwapContract() internal view returns (uint256, uint256) {
-        isValidClaim();
-
-        uint256 creatorAmount = claimAmount();
-        return (creatorAmount, totalFee);
+        return (creatorAmount, nonce);
     }
 
     function canCancel() public view returns (bool) {
@@ -269,13 +270,13 @@ contract Aon is Initializable, Nonces {
         return true;
     }
 
-    function isValidContribution(uint256 _amount, uint256 _tip) public view {
+    function isValidContribution(uint256 _amount, uint256 _contributorFee) public view {
         if (block.timestamp > endTime) revert CannotContributeAfterEndTime();
         if (isCancelled()) revert CannotContributeToCancelledContract();
         if (isClaimed()) revert CannotContributeToClaimedContract();
         if (isFinalized()) revert CannotContributeToFinalizedContract();
         if (_amount == 0) revert InvalidContribution();
-        if (_tip >= _amount) revert TipCannotExceedContributionAmount();
+        if (_contributorFee >= _amount) revert ContributorFeeCannotExceedContributionAmount();
     }
 
     function isValidSwipe() public view returns (bool) {
@@ -303,18 +304,18 @@ contract Aon is Initializable, Nonces {
      *         Used for contributions that go through a swap contract.
      *
      * @param contributor The address that originally contributed.
-     * @param fee The platform fee. The platform fee is deducted from the amount claimed by the creator, but is refunded
+     * @param creatorFee The creator fee. The creator fee is deducted from the amount claimed by the creator, but is refunded
      * in case the campaign is cancelled or fails.
-     * @param tip The tip offered to the platform by the contributor. The tip is *not* refunded in case the campaign is
-     * cancelled or fails.
+     * @param contributorFee The contributor fee. The contributor fee is deducted from the amount refunded to the contributor. It
+     *  can include fees like the payment processing fee, a platform tip, etc.
      */
-    function contributeFor(address contributor, uint256 fee, uint256 tip) public payable {
-        isValidContribution(msg.value, tip);
+    function contributeFor(address contributor, uint256 creatorFee, uint256 contributorFee) public payable {
+        isValidContribution(msg.value, contributorFee);
 
-        uint256 contributionAmount = msg.value - tip;
+        uint256 contributionAmount = msg.value - contributorFee;
         contributions[contributor] += contributionAmount;
-        totalFee += fee;
-        totalTip += tip;
+        totalCreatorFee += creatorFee;
+        totalContributorFee += contributorFee;
 
         emit ContributionReceived(contributor, contributionAmount);
     }
@@ -329,8 +330,8 @@ contract Aon is Initializable, Nonces {
     /**
      * @notice Refund the sender's contributions. Used to refund contributions directly on Rootstock.
      */
-    function refund() external {
-        (uint256 refundAmount,) = isValidRefund(msg.sender);
+    function refund(uint256 processingFee) external {
+        (uint256 refundAmount,) = isValidRefund(msg.sender, processingFee);
 
         contributions[msg.sender] = 0;
 
@@ -355,6 +356,7 @@ contract Aon is Initializable, Nonces {
      * @param preimageHash The preimage hash for the lock.
      * @param claimAddress The address that can claim the locked funds.
      * @param timelock     The timelock value for the lock.
+     * @param processingFee The fee for the processing of the refund.
      */
     function refundToSwapContract(
         address contributor,
@@ -363,23 +365,17 @@ contract Aon is Initializable, Nonces {
         bytes calldata signature,
         bytes32 preimageHash,
         address claimAddress,
-        uint256 timelock
+        uint256 timelock,
+        uint256 processingFee
     ) external {
         if (block.timestamp > deadline) revert SignatureExpired();
 
-        (uint256 refundAmount, uint256 nonce) = isValidRefund(contributor);
+        (uint256 refundAmount, uint256 nonce) = isValidRefund(contributor, processingFee);
 
         // -----------------------------------------------------------------
         // Verify EIP-712 signature
         // -----------------------------------------------------------------
-        bytes32 structHash = keccak256(
-            abi.encode(_REFUND_TO_SWAP_CONTRACT_TYPEHASH, contributor, swapContract, refundAmount, nonce, deadline)
-        );
-
-        bytes32 digest = MessageHashUtils.toTypedDataHash(_DOMAIN_SEPARATOR, structHash);
-        address signer = ECDSA.recover(digest, signature);
-
-        require(signer == contributor, InvalidSignature());
+        verifyEIP712SignatureForRefund(contributor, swapContract, refundAmount, nonce, deadline, signature);
 
         // Consume nonce to prevent replay
         _useNonce(contributor);
@@ -397,12 +393,29 @@ contract Aon is Initializable, Nonces {
         emit ContributionRefunded(contributor, refundAmount);
     }
 
+    function verifyEIP712SignatureForRefund(
+        address contributor,
+        address swapContract,
+        uint256 refundAmount,
+        uint256 nonce,
+        uint256 deadline,
+        bytes calldata signature
+    ) private view {
+        bytes32 structHash = keccak256(
+            abi.encode(_REFUND_TO_SWAP_CONTRACT_TYPEHASH, contributor, swapContract, refundAmount, nonce, deadline)
+        );
+        bytes32 digest = MessageHashUtils.toTypedDataHash(_DOMAIN_SEPARATOR, structHash);
+        address signer = ECDSA.recover(digest, signature);
+
+        require(signer == contributor, InvalidSignature());
+    }
+
     function claim() external {
-        (uint256 creatorAmount, uint256 _totalFee,) = canClaim(msg.sender);
+        (uint256 creatorAmount,) = canClaim(msg.sender);
         status = Status.Claimed;
 
         // Send platform fees
-        uint256 totalPlatformAmount = _totalFee + totalTip;
+        uint256 totalPlatformAmount = totalCreatorFee + totalContributorFee;
         if (totalPlatformAmount > 0) {
             (bool success, bytes memory reason) = factory.owner().call{value: totalPlatformAmount}("");
             require(success, FailedToSendPlatformAmount(reason));
@@ -414,7 +427,7 @@ contract Aon is Initializable, Nonces {
             require(success, FailedToSendFundsInClaim(reason));
         }
 
-        emit Claimed(creatorAmount, _totalFee);
+        emit Claimed(creatorAmount, totalCreatorFee, totalContributorFee);
     }
 
     /**
@@ -439,13 +452,14 @@ contract Aon is Initializable, Nonces {
     ) external {
         if (block.timestamp > deadline) revert SignatureExpired();
 
-        (uint256 creatorAmount, uint256 _totalFee) = canClaimToSwapContract();
+        isValidClaim();
+        uint256 creatorAmount = claimableBalance();
 
         // Verify signature
         verifyClaimSignature(swapContract, deadline, signature);
 
         // Execute claim
-        executeClaimToSwapContract(swapContract, creatorAmount, _totalFee, preimageHash, claimAddress, timelock);
+        executeClaimToSwapContract(swapContract, creatorAmount, preimageHash, claimAddress, timelock);
     }
 
     function cancel() external {
@@ -469,7 +483,7 @@ contract Aon is Initializable, Nonces {
     function verifyClaimSignature(address swapContract, uint256 deadline, bytes calldata signature) private {
         uint256 nonce = nonces(creator);
         bytes32 structHash = keccak256(
-            abi.encode(_CLAIM_TO_SWAP_CONTRACT_TYPEHASH, creator, swapContract, address(this).balance, nonce, deadline)
+            abi.encode(_CLAIM_TO_SWAP_CONTRACT_TYPEHASH, creator, swapContract, claimableBalance(), nonce, deadline)
         );
 
         bytes32 digest = MessageHashUtils.toTypedDataHash(_DOMAIN_SEPARATOR, structHash);
@@ -482,7 +496,6 @@ contract Aon is Initializable, Nonces {
     function executeClaimToSwapContract(
         address swapContract,
         uint256 creatorAmount,
-        uint256 _totalFee,
         bytes32 preimageHash,
         address claimAddress,
         uint256 timelock
@@ -490,7 +503,7 @@ contract Aon is Initializable, Nonces {
         status = Status.Claimed;
 
         // Send platform fees and tips
-        uint256 totalPlatformAmount = _totalFee + totalTip;
+        uint256 totalPlatformAmount = totalCreatorFee + totalContributorFee;
         if (totalPlatformAmount > 0) {
             (bool success, bytes memory reason) = factory.owner().call{value: totalPlatformAmount}("");
             require(success, FailedToSendPlatformAmount(reason));
@@ -504,6 +517,6 @@ contract Aon is Initializable, Nonces {
             require(success, FailedToSendFundsInClaim(reason));
         }
 
-        emit Claimed(creatorAmount, _totalFee);
+        emit Claimed(creatorAmount, totalCreatorFee, totalContributorFee);
     }
 }

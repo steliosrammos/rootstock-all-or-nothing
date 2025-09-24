@@ -119,10 +119,17 @@ Implements the strategy pattern for determining when funding goals are reached.
 - Enables platform fund recovery for abandoned campaigns
 
 #### 2. **Dynamic Fee Model**
-**Decision**: The fee is passed as a parameter to individual contribution calls, and is deducted from the claiming amount automatically. The contract owner is the recipient of the fee.
+**Decision**: The contract tracks two fee types: the creator fee and the contributor fee. Both are passed as a parameter to individual contribution calls and added to a fee total. The creator fee is deducted from the claiming amount automatically 
+when the creator claims the funds. The contributor fee is deducted from the amount contributed and the refund amount and
+does not count towards the goal. Both the contributor and creator fees are sent to the contract owner.
+
+The contributor fee is used to cover the cost of the payment processing (eg: transfer into the contract), a platform tip, etc.
+The creator fee is used to track the fee paid by the creator to the contract owner for the services provided (eg: platform fee, affiliate fee, etc.).
+
 **Rationale**:
 - Provides a source of revenue for the owner and maintainer of the contract
-- Allows flexible fee models, eg: variable platform fee
+- Allows flexible fee models, eg: variable platform fee, tipping, affiliate fees, processing fees, etc. With this architecture,
+the platform integrating the contract can easily change the fee model to suit their needs (eg: change the platform fee, add a tipping fee, decide whether to charge a variable or fixed processing fee, etc.).
 
 #### 3. **Granular Custom Errors**
 **Decision**: Use custom errors for each state transition and validation.
@@ -148,7 +155,7 @@ Implements the strategy pattern for determining when funding goals are reached.
 ### Fund Safety Mechanisms
 1. **Goal-Based Claiming**: Funds only claimable when goals are met
 2. **Time-Based Windows**: Structured timeframes for claims and refunds
-3. **Platform Fee Protection**: Automatic platform fee deduction and transfer (on claiming only)
+3. **Fee Protection**: Automatic fee deduction and transfer (on claiming only)
 4. **Abandoned Fund Recovery**: Factory owner can recover funds after extended periods
 
 ### Signature Security

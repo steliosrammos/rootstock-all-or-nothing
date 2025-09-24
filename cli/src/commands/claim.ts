@@ -58,7 +58,6 @@ export const claimCommand = new Command('claim')
         console.log(`Claimer: ${chalk.blue(formatAddress(claimer))}`);
         console.log(`Goal: ${chalk.green(campaignInfo.goal)} RBTC`);
         console.log(`Raised: ${chalk.green(campaignInfo.balance)} RBTC`);
-        console.log(`Platform Fees: ${chalk.gray(claimInfo.totalFee)} RBTC`);
         console.log(`Net Amount: ${chalk.yellow(claimInfo.creatorAmount)} RBTC`);
         console.log(`Campaign Status: ${campaignInfo.status === 0 ? chalk.blue('Active') : 
                                         campaignInfo.status === 1 ? chalk.yellow('Cancelled') : 
@@ -87,7 +86,6 @@ export const claimCommand = new Command('claim')
           logSuccess('Funds claimed successfully!');
           console.log(`Transaction: ${chalk.blue(txHash)}`);
           console.log(`Amount Claimed: ${chalk.green(claimInfo.creatorAmount)} RBTC`);
-          console.log(`Platform Fee: ${chalk.gray(claimInfo.totalFee)} RBTC`);
 
         } catch (claimError) {
           claimSpinner.stop();
