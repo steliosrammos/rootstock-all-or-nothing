@@ -483,7 +483,7 @@ contract Aon is Initializable, Nonces {
     function verifyClaimSignature(address swapContract, uint256 deadline, bytes calldata signature) private {
         uint256 nonce = nonces(creator);
         bytes32 structHash = keccak256(
-            abi.encode(_CLAIM_TO_SWAP_CONTRACT_TYPEHASH, creator, swapContract, address(this).balance, nonce, deadline)
+            abi.encode(_CLAIM_TO_SWAP_CONTRACT_TYPEHASH, creator, swapContract, claimableBalance(), nonce, deadline)
         );
 
         bytes32 digest = MessageHashUtils.toTypedDataHash(_DOMAIN_SEPARATOR, structHash);
