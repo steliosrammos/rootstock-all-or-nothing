@@ -7,6 +7,7 @@ import {
   logInfo, 
   createSpinner, 
   getPrivateKeyFromEnv,
+  validateEthAmount,
   isValidEthereumAddress,
   confirmAction,
   formatAddress 
@@ -15,6 +16,7 @@ import {
 export const refundCommand = new Command('refund')
   .description('Refund your contribution from an AON campaign')
   .argument('<campaign>', 'Campaign contract address')
+  .option('-p, --processing-fee <amount>', 'Processing fee in RBTC (optional)', '0')
   .option('-n, --network <network>', 'Network to use', 'local')
   .option('-k, --private-key <key>', 'Private key (or use PRIVATE_KEY env var)')
   .option('-y, --yes', 'Skip confirmation prompts')
@@ -25,6 +27,8 @@ export const refundCommand = new Command('refund')
         logError('Invalid campaign address');
         process.exit(1);
       }
+
+      const processingFee = validateEthAmount(options.processingFee, true); // Allow zero for processing fees
 
       const privateKey = options.privateKey || getPrivateKeyFromEnv();
       if (!privateKey) {
@@ -46,7 +50,7 @@ export const refundCommand = new Command('refund')
       try {
         const [campaignInfo, contributionInfo] = await Promise.all([
           manager.getCampaignInfo(campaign),
-          manager.getContributionInfo(campaign, contributor),
+          manager.getContributionInfo(campaign, contributor, processingFee),
         ]);
 
         spinner.stop();
@@ -57,6 +61,7 @@ export const refundCommand = new Command('refund')
         console.log(`Campaign: ${chalk.green(formatAddress(campaign))}`);
         console.log(`Creator: ${chalk.green(formatAddress(campaignInfo.creator))}`);
         console.log(`Your Contribution: ${chalk.green(contributionInfo.amount)} RBTC`);
+        console.log(`Processing Fee: ${chalk.gray(processingFee)} RBTC`);
         console.log(`Refund Amount: ${chalk.yellow(contributionInfo.refundAmount)} RBTC`);
         console.log(`Campaign Status: ${campaignInfo.status === 0 ? chalk.blue('Active') : 
                                         campaignInfo.status === 1 ? chalk.yellow('Cancelled') : 
@@ -93,7 +98,7 @@ export const refundCommand = new Command('refund')
         const refundSpinner = createSpinner('Processing refund...').start();
 
         try {
-          const txHash = await manager.refund(campaign);
+          const txHash = await manager.refund(campaign, processingFee);
           refundSpinner.stop();
 
           logSuccess('Refund processed successfully!');

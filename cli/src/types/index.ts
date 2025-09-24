@@ -22,8 +22,8 @@ export interface CampaignInfo {
   endTime: number;
   status: number;
   balance: string;
-  totalFee: string;
-  totalTip: string;
+  totalCreatorFee: string;
+  totalContributorFee: string;
   claimOrRefundWindow: number;
   goalReached: boolean;
   isSuccessful: boolean;

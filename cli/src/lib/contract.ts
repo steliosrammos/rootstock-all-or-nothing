@@ -32,17 +32,17 @@ const AON_ABI = parseAbi([
   'function goal() external view returns (uint256)',
   'function endTime() external view returns (uint256)',
   'function status() external view returns (uint8)',
-  'function totalFee() external view returns (uint256)',
-  'function totalTip() external view returns (uint256)',
+  'function totalCreatorFee() external view returns (uint256)',
+  'function totalContributorFee() external view returns (uint256)',
   'function claimOrRefundWindow() external view returns (uint256)',
   'function contributions(address) external view returns (uint256)',
-  'function contribute(uint256 fee, uint256 tip) external payable',
-  'function contributeFor(address contributor, uint256 fee, uint256 tip) external payable',
-  'function refund() external',
+  'function contribute(uint256 creatorFee, uint256 contributorFee) external payable',
+  'function contributeFor(address contributor, uint256 creatorFee, uint256 contributorFee) external payable',
+  'function refund(uint256 processingFee) external',
   'function claim() external',
   'function cancel() external',
-  'function canRefund(address contributor) external view returns (uint256, uint256)',
-  'function canClaim(address) external view returns (uint256, uint256, uint256)',
+  'function canRefund(address contributor, uint256 processingFee) external view returns (uint256, uint256)',
+  'function canClaim(address) external view returns (uint256, uint256)',
   'function canContribute(uint256) external view returns (bool)',
   'function canCancel() external view returns (bool)',
   'function isSuccessful() external view returns (bool)',
@@ -51,7 +51,7 @@ const AON_ABI = parseAbi([
   'function goalReachedStrategy() external view returns (address)',
   'event ContributionReceived(address indexed contributor, uint256 amount)',
   'event ContributionRefunded(address indexed contributor, uint256 amount)',
-  'event Claimed(uint256 creatorAmount, uint256 platformFeeAmount)',
+  'event Claimed(uint256 creatorAmount, uint256 creatorFeeAmount, uint256 contributorFeeAmount)',
   'event Cancelled()',
   // Error definitions for proper decoding
   'error GoalNotReached()',
@@ -66,7 +66,8 @@ const AON_ABI = parseAbi([
   'error CannotRefundZeroContribution()',
   'error CannotRefundClaimedContract()',
   'error InsufficientBalanceForRefund(uint256 balance, uint256 refundAmount, uint256 goal)',
-  'error TipCannotExceedContributionAmount()',
+  'error ContributorFeeCannotExceedContributionAmount()',
+  'error ProcessingFeeHigherThanRefundAmount(uint256 refundAmount, uint256 processingFee)',
 ]);
 
 // Chain configurations
@@ -285,8 +286,8 @@ export class ContractManager {
       goal,
       endTime,
       status,
-      totalFee,
-      totalTip,
+      totalCreatorFee,
+      totalContributorFee,
       claimOrRefundWindow,
       balance,
       isSuccessful,
@@ -297,8 +298,8 @@ export class ContractManager {
       campaign.read.goal(),
       campaign.read.endTime(),
       campaign.read.status(),
-      campaign.read.totalFee(),
-      campaign.read.totalTip(),
+      campaign.read.totalCreatorFee(),
+      campaign.read.totalContributorFee(),
       campaign.read.claimOrRefundWindow(),
       this.publicClient.getBalance({ address: campaignAddress as Address }),
       campaign.read.isSuccessful(),
@@ -313,8 +314,8 @@ export class ContractManager {
       endTime: Number(endTime),
       status: Number(status),
       balance: formatEther(balance),
-      totalFee: formatEther(totalFee),
-      totalTip: formatEther(totalTip),
+      totalCreatorFee: formatEther(totalCreatorFee),
+      totalContributorFee: formatEther(totalContributorFee),
       claimOrRefundWindow: Number(claimOrRefundWindow),
       goalReached: isSuccessful,
       isSuccessful,
@@ -323,7 +324,7 @@ export class ContractManager {
     };
   }
 
-  async contribute(campaignAddress: string, amountInEther: string, feeInEther: string = '0', tipInEther: string = '0'): Promise<Hash> {
+  async contribute(campaignAddress: string, amountInEther: string, creatorFeeInEther: string = '0', contributorFeeInEther: string = '0'): Promise<Hash> {
     if (!this.walletClient) {
       throw new Error('Wallet client required for contribution');
     }
@@ -335,10 +336,10 @@ export class ContractManager {
     });
 
     const amount = parseEther(amountInEther);
-    const fee = parseEther(feeInEther);
-    const tip = parseEther(tipInEther);
+    const creatorFee = parseEther(creatorFeeInEther);
+    const contributorFee = parseEther(contributorFeeInEther);
 
-    const hash = await campaign.write.contribute([fee, tip], { 
+    const hash = await campaign.write.contribute([creatorFee, contributorFee], { 
       value: amount,
       account: this.account!,
       chain: this.chain,
@@ -348,7 +349,7 @@ export class ContractManager {
     return hash;
   }
 
-  async refund(campaignAddress: string): Promise<Hash> {
+  async refund(campaignAddress: string, processingFeeInEther: string = '0'): Promise<Hash> {
     if (!this.walletClient) {
       throw new Error('Wallet client required for refund');
     }
@@ -359,7 +360,9 @@ export class ContractManager {
       client: { public: this.publicClient, wallet: this.walletClient },
     });
 
-    const hash = await campaign.write.refund({
+    const processingFee = parseEther(processingFeeInEther);
+
+    const hash = await campaign.write.refund([processingFee], {
       account: this.account!,
       chain: this.chain,
     });
@@ -408,7 +411,7 @@ export class ContractManager {
     return hash;
   }
 
-  async getContributionInfo(campaignAddress: string, contributor: string): Promise<ContributionInfo> {
+  async getContributionInfo(campaignAddress: string, contributor: string, processingFeeInEther: string = '0'): Promise<ContributionInfo> {
     const campaign = getContract({
       address: campaignAddress as Address,
       abi: AON_ABI,
@@ -421,7 +424,8 @@ export class ContractManager {
     let refundAmount = 0n;
     
     try {
-      const refundResult = await campaign.read.canRefund([contributor as Address]);
+      const processingFee = parseEther(processingFeeInEther);
+      const refundResult = await campaign.read.canRefund([contributor as Address, processingFee]);
       canRefund = refundResult[0] > 0n;
       refundAmount = refundResult[0];
     } catch (error) {
@@ -438,7 +442,7 @@ export class ContractManager {
     };
   }
 
-  async canClaim(campaignAddress: string, claimer: string): Promise<{ canClaim: boolean; creatorAmount: string; totalFee: string; nonce: string; error?: string }> {
+  async canClaim(campaignAddress: string, claimer: string): Promise<{ canClaim: boolean; creatorAmount: string; nonce: string; error?: string }> {
     const campaign = getContract({
       address: campaignAddress as Address,
       abi: AON_ABI,
@@ -450,8 +454,7 @@ export class ContractManager {
       return {
         canClaim: true,
         creatorAmount: formatEther(result[0]),
-        totalFee: formatEther(result[1]),
-        nonce: result[2].toString(),
+        nonce: result[1].toString(),
       };
     } catch (error: any) {
       // Extract the contract error from the viem error
@@ -503,7 +506,6 @@ export class ContractManager {
       return {
         canClaim: false,
         creatorAmount: '0',
-        totalFee: '0',
         nonce: '0',
         error: errorMessage,
       };
