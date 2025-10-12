@@ -7,6 +7,11 @@ import "../src/AonGoalReachedNative.sol";
 import "../src/Factory.sol";
 import "../src/AonProxy.sol";
 
+/*
+* This script is used to deploy the contracts to the local Anvil network.
+* It should be used for development purposes only.
+*/
+
 contract Deploy is Script {
     function run() external returns (Factory, AonGoalReachedNative) {
         uint256 deployerPrivateKey = vm.envUint("RSK_DEPLOYMENT_PRIVATE_KEY");

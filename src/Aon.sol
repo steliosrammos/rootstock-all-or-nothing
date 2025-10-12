@@ -29,6 +29,13 @@ contract Aon is Initializable, Nonces {
     error InvalidContribution();
     error FailedToSwipeFunds(bytes reason);
     error AlreadyClaimed();
+    
+    // Initialization validation errors
+    error InvalidGoal();
+    error InvalidDuration();
+    error InvalidClaimOrRefundWindow();
+    error InvalidGoalReachedStrategy();
+    error InvalidCreator();
 
     /*
     * STATE ERRORS
@@ -131,6 +138,14 @@ contract Aon is Initializable, Nonces {
         address _goalReachedStrategy,
         uint256 _claimOrRefundWindow
     ) public initializer {
+        // Validate input parameters to prevent malicious campaigns
+        // Minimum goal: 0.001 ETH (to prevent dust attacks)
+        if (_goal == 0 ether) revert InvalidGoal();
+        if (_durationInSeconds < 24 hours) revert InvalidDuration();
+        if (_claimOrRefundWindow < 24 hours) revert InvalidClaimOrRefundWindow();
+        if (_goalReachedStrategy == address(0)) revert InvalidGoalReachedStrategy();
+        if (_creator == address(0)) revert InvalidCreator();
+        
         creator = _creator;
         goal = _goal;
         endTime = block.timestamp + _durationInSeconds;
