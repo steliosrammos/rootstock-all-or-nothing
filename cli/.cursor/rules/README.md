@@ -70,3 +70,4 @@ These rules help maintain consistency and provide context for:
 - Use `isValidEthereumAddress()` for address validation
 - Use `createSpinner()` for async operations
 - Use `logError()`, `logSuccess()`, `logInfo()` for user feedback
+

@@ -338,3 +338,4 @@ export const mainCommand = new Command('main')
 - Test all error scenarios
 - Use spinners for async operations
 - Follow existing patterns for consistency
+

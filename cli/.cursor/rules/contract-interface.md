@@ -206,3 +206,4 @@ if (!privateKey) {
 - Handle all possible contract errors with user-friendly messages
 - Test all commands after contract updates
 - Keep type definitions in sync with contract interface
+

@@ -49,7 +49,7 @@ const tx = await factory.create(
 
 ## Network Support
 
-- **Local Development**: Anvil (Chain ID: 33)
+- **Local Development**: Anvil (Chain ID: 31337)
 - **RSK Testnet**: Chain ID 31
 - **RSK Mainnet**: Chain ID 30
 
