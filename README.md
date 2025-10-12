@@ -1,5 +1,7 @@
 # AON (All-Or-Nothing) Crowdfunding Smart Contracts
 
+![CI](https://github.com/steliosrammos/rootstock-all-or-nothing/actions/workflows/test.yml/badge.svg)
+
 A decentralized crowdfunding platform implementing an "All-Or-Nothing" funding model with cross-chain support. Contributors can pledge funds to campaigns, and creators can only claim funds if the funding goal is reached within the specified timeframe.
 
 ## Features
