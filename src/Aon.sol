@@ -29,7 +29,7 @@ contract Aon is Initializable, Nonces {
     error InvalidContribution();
     error FailedToSwipeFunds(bytes reason);
     error AlreadyClaimed();
-    
+
     // Initialization validation errors
     error InvalidGoal();
     error InvalidDuration();
@@ -145,7 +145,7 @@ contract Aon is Initializable, Nonces {
         if (_claimOrRefundWindow < 24 hours) revert InvalidClaimOrRefundWindow();
         if (_goalReachedStrategy == address(0)) revert InvalidGoalReachedStrategy();
         if (_creator == address(0)) revert InvalidCreator();
-        
+
         creator = _creator;
         goal = _goal;
         endTime = block.timestamp + _durationInSeconds;

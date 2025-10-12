@@ -145,7 +145,6 @@ contract AonProxyTest is Test {
         payable(address(proxy)).transfer(10 ether);
     }
 
-
     function test_Proxy_IsNotPayable() public {
         // Test that proxy doesn't accept ETH in regular function calls
         DummyImpl proxyAsImpl = DummyImpl(address(proxy));
@@ -156,7 +155,7 @@ contract AonProxyTest is Test {
         // The proxy itself doesn't accept ETH, but the implementation might
         // So we test that the proxy can handle payable functions from the implementation
         proxyAsImpl.payableFunction{value: 1 ether}();
-        
+
         // Verify the ETH was received by the proxy (through the implementation)
         assertEq(address(proxy).balance, 1 ether);
     }
@@ -203,7 +202,7 @@ contract AonProxyTest is Test {
         // The implementation is immutable, so we can't change it
         // This is more of a documentation test
         assertEq(proxy.implementation(), address(impl));
-        
+
         // Verify that implementation is immutable by checking it's the same
         assertEq(proxy.implementation(), address(impl));
     }
