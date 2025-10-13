@@ -194,6 +194,7 @@ contract Aon is Initializable, Nonces {
     * Derived State Functions
     */
     function isFinalized() internal view returns (bool) {
+        // slither-disable-next-line timestamp
         return (address(this).balance <= 1 wei && block.timestamp > (endTime + claimOrRefundWindow * 2));
     }
 
@@ -205,11 +206,15 @@ contract Aon is Initializable, Nonces {
         return status == Status.Claimed;
     }
 
+    // slither-disable-next-line timestamp
     function isUnclaimed() public view returns (bool) {
+        // slither-disable-next-line timestamp
         return (block.timestamp > endTime + claimOrRefundWindow && goalReachedStrategy.isGoalReached());
     }
 
+    // slither-disable-next-line timestamp
     function isFailed() public view returns (bool) {
+        // slither-disable-next-line timestamp
         return (block.timestamp > endTime && !goalReachedStrategy.isGoalReached());
     }
 
@@ -290,6 +295,7 @@ contract Aon is Initializable, Nonces {
     }
 
     function isValidContribution(uint256 _amount, uint256 _contributorFee) public view {
+        // slither-disable-next-line timestamp
         if (block.timestamp > endTime) revert CannotContributeAfterEndTime();
         if (isCancelled()) revert CannotContributeToCancelledContract();
         if (isClaimed()) revert CannotContributeToClaimedContract();
@@ -305,6 +311,7 @@ contract Aon is Initializable, Nonces {
             We take the claim/refund twice as the max delay, in case the funds were not claimed by the creator 
             (claim window) and then some funds were not refunded (refund window).
         */
+        // slither-disable-next-line timestamp
         if (block.timestamp <= endTime + claimOrRefundWindow * 2) {
             revert CannotSwipeFundsBeforeEndOfClaimOrRefundWindow();
         }
@@ -356,6 +363,7 @@ contract Aon is Initializable, Nonces {
         emit ContributionRefunded(msg.sender, refundAmount);
 
         // We refund the contributor
+        // slither-disable-next-line low-level-calls
         (bool success, bytes memory reason) = msg.sender.call{value: refundAmount}("");
         require(success, FailedToRefund(reason));
     }
@@ -406,6 +414,7 @@ contract Aon is Initializable, Nonces {
         contributions[contributor] = 0;
         emit ContributionRefunded(contributor, refundAmount);
 
+        // slither-disable-next-line low-level-calls
         (bool success, bytes memory reason) = swapContract.call{value: refundAmount}(
             abi.encodeWithSignature("lock(bytes32,address,uint256)", preimageHash, claimAddress, timelock)
         );
@@ -438,12 +447,14 @@ contract Aon is Initializable, Nonces {
         // Send platform fees
         uint256 totalPlatformAmount = totalCreatorFee + totalContributorFee;
         if (totalPlatformAmount > 0) {
+            // slither-disable-next-line low-level-calls
             (bool success, bytes memory reason) = factory.owner().call{value: totalPlatformAmount}("");
             require(success, FailedToSendPlatformAmount(reason));
         }
 
         // Send remaining funds to creator
         if (creatorAmount > 0) {
+            // slither-disable-next-line low-level-calls
             (bool success, bytes memory reason) = creator.call{value: creatorAmount}("");
             require(success, FailedToSendFundsInClaim(reason));
         }
@@ -493,6 +504,7 @@ contract Aon is Initializable, Nonces {
         isValidSwipe();
         emit FundsSwiped();
 
+        // slither-disable-next-line low-level-calls
         (bool success, bytes memory reason) = factory.owner().call{value: address(this).balance}("");
         require(success, FailedToSwipeFunds(reason));
     }
@@ -532,6 +544,7 @@ contract Aon is Initializable, Nonces {
 
         // Send remaining funds to swap contract
         if (creatorAmount > 0) {
+            // slither-disable-next-line low-level-calls
             (bool success, bytes memory reason) = swapContract.call{value: creatorAmount}(
                 abi.encodeWithSignature("lock(bytes32,address,uint256)", preimageHash, claimAddress, timelock)
             );
