@@ -41,7 +41,7 @@ jobs:
         uses: foundry-rs/foundry-toolchain@v1
 
       - name: Run coverage
-        run: forge coverage --report lcov --ir-minimum
+        run: forge coverage --report lcov --skip script
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
