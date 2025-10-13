@@ -405,7 +405,7 @@ contract Aon is Initializable, Nonces {
         // -----------------------------------------------------------------
         contributions[contributor] = 0;
         emit ContributionRefunded(contributor, refundAmount);
-        
+
         (bool success, bytes memory reason) = swapContract.call{value: refundAmount}(
             abi.encodeWithSignature("lock(bytes32,address,uint256)", preimageHash, claimAddress, timelock)
         );
