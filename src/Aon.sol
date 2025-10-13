@@ -414,7 +414,7 @@ contract Aon is Initializable, Nonces {
 
     function verifyEIP712SignatureForRefund(
         address contributor,
-        ISwapHTLC swapContract,
+        address swapContract,
         uint256 refundAmount,
         uint256 nonce,
         uint256 deadline,
