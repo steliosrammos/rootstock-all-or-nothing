@@ -7,8 +7,10 @@ contract AonProxy is Proxy {
     address public immutable implementation;
 
     error DirectTransfersNotAllowed();
+    error InvalidImplementation();
 
     constructor(address impl) Proxy() {
+        if (impl == address(0)) revert InvalidImplementation();
         implementation = impl;
     }
 
@@ -16,6 +18,7 @@ contract AonProxy is Proxy {
         return implementation;
     }
 
+    // slither-disable-next-line locked-ether
     receive() external payable {
         revert DirectTransfersNotAllowed();
     }

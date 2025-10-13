@@ -10,11 +10,15 @@ contract Factory is Ownable {
 
     address public implementation;
 
+    error InvalidImplementation();
+
     constructor(address _implementation) Ownable(msg.sender) {
+        if (_implementation == address(0)) revert InvalidImplementation();
         implementation = _implementation;
     }
 
     function setImplementation(address _implementation) public onlyOwner {
+        if (_implementation == address(0)) revert InvalidImplementation();
         implementation = _implementation;
     }
 
@@ -26,9 +30,9 @@ contract Factory is Ownable {
         uint256 claimOrRefundWindow
     ) external {
         AonProxy proxy = new AonProxy(implementation);
+        emit AonCreated(address(proxy));
         Aon(address(proxy)).initialize(
             creator, goalInEther, durationInSeconds, goalReachedStrategy, claimOrRefundWindow
         );
-        emit AonCreated(address(proxy));
     }
 }
