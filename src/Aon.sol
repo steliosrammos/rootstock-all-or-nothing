@@ -11,6 +11,23 @@ interface IOwnable {
     function owner() external view returns (address);
 }
 
+/**
+ * @title ISwapHTLC
+ * @dev Interface for Boltz HTLC swap contracts
+ * @notice This interface defines the standard lock function used by Boltz swap contracts
+ *        for cross-chain atomic swaps
+ */
+interface ISwapHTLC {
+    /**
+     * @notice Locks funds in the swap contract with the specified parameters
+     * @param preimageHash The hash of the preimage that will unlock the funds
+     * @param claimAddress The address that can claim the locked funds
+     * @param timelock The timelock value in seconds
+     * @dev This function should be payable to receive the locked funds
+     */
+    function lock(bytes32 preimageHash, address claimAddress, uint256 timelock) external payable;
+}
+
 contract Aon is Initializable, Nonces {
     /*
     * EVENTS
@@ -386,7 +403,7 @@ contract Aon is Initializable, Nonces {
      */
     function refundToSwapContract(
         address contributor,
-        address swapContract,
+        ISwapHTLC swapContract,
         uint256 deadline,
         bytes calldata signature,
         bytes32 preimageHash,
@@ -395,7 +412,7 @@ contract Aon is Initializable, Nonces {
         uint256 processingFee
     ) external {
         if (block.timestamp > deadline) revert SignatureExpired();
-        if (swapContract == address(0)) revert InvalidSwapContract();
+        if (address(swapContract) == address(0)) revert InvalidSwapContract();
         if (claimAddress == address(0)) revert InvalidClaimAddress();
 
         (uint256 refundAmount, uint256 nonce) = isValidRefund(contributor, processingFee);
@@ -415,7 +432,7 @@ contract Aon is Initializable, Nonces {
         emit ContributionRefunded(contributor, refundAmount);
 
         // slither-disable-next-line low-level-calls
-        (bool success, bytes memory reason) = swapContract.call{value: refundAmount}(
+        (bool success, bytes memory reason) = address(swapContract).call{value: refundAmount}(
             abi.encodeWithSignature("lock(bytes32,address,uint256)", preimageHash, claimAddress, timelock)
         );
         require(success, FailedToRefund(reason));
@@ -423,7 +440,7 @@ contract Aon is Initializable, Nonces {
 
     function verifyEIP712SignatureForRefund(
         address contributor,
-        address swapContract,
+        ISwapHTLC swapContract,
         uint256 refundAmount,
         uint256 nonce,
         uint256 deadline,
@@ -473,7 +490,7 @@ contract Aon is Initializable, Nonces {
      * @param timelock     The timelock value for the lock.
      */
     function claimToSwapContract(
-        address swapContract,
+        ISwapHTLC swapContract,
         uint256 deadline,
         bytes calldata signature,
         bytes32 preimageHash,
@@ -481,7 +498,7 @@ contract Aon is Initializable, Nonces {
         uint256 timelock
     ) external {
         if (block.timestamp > deadline) revert SignatureExpired();
-        if (swapContract == address(0)) revert InvalidSwapContract();
+        if (address(swapContract) == address(0)) revert InvalidSwapContract();
         if (claimAddress == address(0)) revert InvalidClaimAddress();
 
         isValidClaim();
@@ -512,7 +529,7 @@ contract Aon is Initializable, Nonces {
     /*
     * Private Functions
     */
-    function verifyClaimSignature(address swapContract, uint256 deadline, bytes calldata signature) private {
+    function verifyClaimSignature(ISwapHTLC swapContract, uint256 deadline, bytes calldata signature) private {
         uint256 nonce = nonces(creator);
         bytes32 structHash = keccak256(
             abi.encode(_CLAIM_TO_SWAP_CONTRACT_TYPEHASH, creator, swapContract, claimableBalance(), nonce, deadline)
@@ -526,7 +543,7 @@ contract Aon is Initializable, Nonces {
     }
 
     function executeClaimToSwapContract(
-        address swapContract,
+        ISwapHTLC swapContract,
         uint256 creatorAmount,
         bytes32 preimageHash,
         address claimAddress,
@@ -545,7 +562,7 @@ contract Aon is Initializable, Nonces {
         // Send remaining funds to swap contract
         if (creatorAmount > 0) {
             // slither-disable-next-line low-level-calls
-            (bool success, bytes memory reason) = swapContract.call{value: creatorAmount}(
+            (bool success, bytes memory reason) = address(swapContract).call{value: creatorAmount}(
                 abi.encodeWithSignature("lock(bytes32,address,uint256)", preimageHash, claimAddress, timelock)
             );
             require(success, FailedToSendFundsInClaim(reason));
