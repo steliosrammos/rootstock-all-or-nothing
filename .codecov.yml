@@ -4,10 +4,14 @@ coverage:
       default:
         target: 80%
         threshold: 1%
+        paths:
+          - "src/**/*"
     patch:
       default:
         target: 80%
         threshold: 1%
+        paths:
+          - "src/**/*"
 
 comment:
   layout: "header,diff,files,footer"
