@@ -1,7 +1,7 @@
 # AON (All-Or-Nothing) Crowdfunding Smart Contracts
 
 ![CI](https://github.com/steliosrammos/rootstock-all-or-nothing/actions/workflows/test.yml/badge.svg)
-![Coverage](https://codecov.io/gh/steliosrammos/rootstock-all-or-nothing/branch/main/graph/badge.svg)
+[![codecov](https://codecov.io/gh/steliosrammos/rootstock-all-or-nothing/graph/badge.svg?token=NO72KTXM8J)](https://codecov.io/gh/steliosrammos/rootstock-all-or-nothing)
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Solidity](https://img.shields.io/badge/Solidity-^0.8.30-blue.svg)
 
