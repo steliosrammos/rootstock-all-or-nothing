@@ -82,6 +82,10 @@ contract Aon is Initializable, Nonces {
     error NoFundsToSwipe();
     error OnlyFactoryCanSwipeFunds();
 
+    // Swap Contract Errors
+    error InvalidSwapContract();
+    error InvalidClaimAddress();
+
     // Status enum
     enum Status {
         Active, // 0 - Default active state
@@ -190,7 +194,7 @@ contract Aon is Initializable, Nonces {
     * Derived State Functions
     */
     function isFinalized() internal view returns (bool) {
-        return (address(this).balance == 0 && block.timestamp > (endTime + claimOrRefundWindow * 2));
+        return (address(this).balance <= 1 wei && block.timestamp > (endTime + claimOrRefundWindow * 2));
     }
 
     function isCancelled() internal view returns (bool) {
@@ -305,7 +309,7 @@ contract Aon is Initializable, Nonces {
             revert CannotSwipeFundsBeforeEndOfClaimOrRefundWindow();
         }
 
-        if (address(this).balance == 0) revert NoFundsToSwipe();
+        if (address(this).balance <= 1 wei) revert NoFundsToSwipe();
 
         return true;
     }
@@ -349,12 +353,11 @@ contract Aon is Initializable, Nonces {
         (uint256 refundAmount,) = isValidRefund(msg.sender, processingFee);
 
         contributions[msg.sender] = 0;
+        emit ContributionRefunded(msg.sender, refundAmount);
 
         // We refund the contributor
         (bool success, bytes memory reason) = msg.sender.call{value: refundAmount}("");
         require(success, FailedToRefund(reason));
-
-        emit ContributionRefunded(msg.sender, refundAmount);
     }
 
     /**
@@ -384,6 +387,8 @@ contract Aon is Initializable, Nonces {
         uint256 processingFee
     ) external {
         if (block.timestamp > deadline) revert SignatureExpired();
+        if (swapContract == address(0)) revert InvalidSwapContract();
+        if (claimAddress == address(0)) revert InvalidClaimAddress();
 
         (uint256 refundAmount, uint256 nonce) = isValidRefund(contributor, processingFee);
 
@@ -399,18 +404,17 @@ contract Aon is Initializable, Nonces {
         // Execute refund
         // -----------------------------------------------------------------
         contributions[contributor] = 0;
-
+        emit ContributionRefunded(contributor, refundAmount);
+        
         (bool success, bytes memory reason) = swapContract.call{value: refundAmount}(
             abi.encodeWithSignature("lock(bytes32,address,uint256)", preimageHash, claimAddress, timelock)
         );
         require(success, FailedToRefund(reason));
-
-        emit ContributionRefunded(contributor, refundAmount);
     }
 
     function verifyEIP712SignatureForRefund(
         address contributor,
-        address swapContract,
+        ISwapHTLC swapContract,
         uint256 refundAmount,
         uint256 nonce,
         uint256 deadline,
@@ -429,6 +433,8 @@ contract Aon is Initializable, Nonces {
         (uint256 creatorAmount,) = canClaim(msg.sender);
         status = Status.Claimed;
 
+        emit Claimed(creatorAmount, totalCreatorFee, totalContributorFee);
+
         // Send platform fees
         uint256 totalPlatformAmount = totalCreatorFee + totalContributorFee;
         if (totalPlatformAmount > 0) {
@@ -441,8 +447,6 @@ contract Aon is Initializable, Nonces {
             (bool success, bytes memory reason) = creator.call{value: creatorAmount}("");
             require(success, FailedToSendFundsInClaim(reason));
         }
-
-        emit Claimed(creatorAmount, totalCreatorFee, totalContributorFee);
     }
 
     /**
@@ -466,6 +470,8 @@ contract Aon is Initializable, Nonces {
         uint256 timelock
     ) external {
         if (block.timestamp > deadline) revert SignatureExpired();
+        if (swapContract == address(0)) revert InvalidSwapContract();
+        if (claimAddress == address(0)) revert InvalidClaimAddress();
 
         isValidClaim();
         uint256 creatorAmount = claimableBalance();
@@ -485,11 +491,10 @@ contract Aon is Initializable, Nonces {
 
     function swipeFunds() public {
         isValidSwipe();
+        emit FundsSwiped();
 
         (bool success, bytes memory reason) = factory.owner().call{value: address(this).balance}("");
         require(success, FailedToSwipeFunds(reason));
-
-        emit FundsSwiped();
     }
 
     /*
@@ -516,6 +521,7 @@ contract Aon is Initializable, Nonces {
         uint256 timelock
     ) private {
         status = Status.Claimed;
+        emit Claimed(creatorAmount, totalCreatorFee, totalContributorFee);
 
         // Send platform fees and tips
         uint256 totalPlatformAmount = totalCreatorFee + totalContributorFee;
@@ -531,7 +537,5 @@ contract Aon is Initializable, Nonces {
             );
             require(success, FailedToSendFundsInClaim(reason));
         }
-
-        emit Claimed(creatorAmount, totalCreatorFee, totalContributorFee);
     }
 }
