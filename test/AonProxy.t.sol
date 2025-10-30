@@ -181,6 +181,7 @@ contract AonProxyTest is Test {
     function test_Proxy_WithZeroImplementation() public {
         // Test proxy with zero address implementation
         vm.expectRevert(AonProxy.InvalidImplementation.selector);
+        new AonProxy(address(0));
     }
 
     function test_Proxy_WithDifferentImplementations() public {
