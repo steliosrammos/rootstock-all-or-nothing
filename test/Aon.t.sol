@@ -1009,6 +1009,117 @@ contract AonTest is Test {
             ISwapHTLC(swapContract), deadline, signature, bytes32(0), address(0x456), address(0x789), 7200
         );
     }
+
+    function test_RefundToSwapContract_FailsWithInvalidSwapContract() public {
+        uint256 contributionAmount = 1 ether;
+        vm.prank(contributor1);
+        aon.contribute{value: contributionAmount}(0, 0);
+
+        vm.prank(creator);
+        aon.cancel();
+
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory signature = new bytes(65);
+
+        vm.expectRevert(Aon.InvalidSwapContract.selector);
+        aon.refundToSwapContract(
+            contributor1,
+            ISwapHTLC(address(0)),
+            deadline,
+            signature,
+            bytes32(0),
+            address(0x123),
+            address(0x456),
+            3600,
+            0
+        );
+    }
+
+    function test_RefundToSwapContract_FailsWithInvalidClaimAddress() public {
+        uint256 contributionAmount = 1 ether;
+        vm.prank(contributor1);
+        aon.contribute{value: contributionAmount}(0, 0);
+
+        vm.prank(creator);
+        aon.cancel();
+
+        address swapContract = address(0x123);
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory signature = new bytes(65);
+
+        vm.expectRevert(Aon.InvalidClaimAddress.selector);
+        aon.refundToSwapContract(
+            contributor1, ISwapHTLC(swapContract), deadline, signature, bytes32(0), address(0), address(0x456), 3600, 0
+        );
+    }
+
+    function test_RefundToSwapContract_FailsWithInvalidRefundAddress() public {
+        uint256 contributionAmount = 1 ether;
+        vm.prank(contributor1);
+        aon.contribute{value: contributionAmount}(0, 0);
+
+        vm.prank(creator);
+        aon.cancel();
+
+        address swapContract = address(0x123);
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory signature = new bytes(65);
+
+        vm.expectRevert(Aon.InvalidRefundAddress.selector);
+        aon.refundToSwapContract(
+            contributor1, ISwapHTLC(swapContract), deadline, signature, bytes32(0), address(0x123), address(0), 3600, 0
+        );
+    }
+
+    function test_ClaimToSwapContract_FailsWithInvalidSwapContract() public {
+        uint256 contributionAmount = GOAL;
+        vm.prank(contributor1);
+        aon.contribute{value: contributionAmount}(0, 0);
+
+        vm.warp(aon.endTime() + 1 days);
+
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory signature = new bytes(65);
+
+        vm.expectRevert(Aon.InvalidSwapContract.selector);
+        aon.claimToSwapContract(
+            ISwapHTLC(address(0)), deadline, signature, bytes32(0), address(0x456), address(0x789), 7200
+        );
+    }
+
+    function test_ClaimToSwapContract_FailsWithInvalidClaimAddress() public {
+        uint256 contributionAmount = GOAL;
+        vm.prank(contributor1);
+        aon.contribute{value: contributionAmount}(0, 0);
+
+        vm.warp(aon.endTime() + 1 days);
+
+        address swapContract = address(0x456);
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory signature = new bytes(65);
+
+        vm.expectRevert(Aon.InvalidClaimAddress.selector);
+        aon.claimToSwapContract(
+            ISwapHTLC(swapContract), deadline, signature, bytes32(0), address(0), address(0x789), 7200
+        );
+    }
+
+    function test_ClaimToSwapContract_FailsWithInvalidRefundAddress() public {
+        uint256 contributionAmount = GOAL;
+        vm.prank(contributor1);
+        aon.contribute{value: contributionAmount}(0, 0);
+
+        vm.warp(aon.endTime() + 1 days);
+
+        address swapContract = address(0x456);
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory signature = new bytes(65);
+
+        vm.expectRevert(Aon.InvalidRefundAddress.selector);
+        aon.claimToSwapContract(
+            ISwapHTLC(swapContract), deadline, signature, bytes32(0), address(0x456), address(0), 7200
+        );
+    }
 }
 
 /// @dev A helper contract to test re-entrancy protection on the refund function.
