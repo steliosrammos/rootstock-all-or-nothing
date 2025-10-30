@@ -102,6 +102,7 @@ contract Aon is Initializable, Nonces {
     // Swap Contract Errors
     error InvalidSwapContract();
     error InvalidClaimAddress();
+    error InvalidRefundAddress();
 
     // Status enum
     enum Status {
@@ -398,6 +399,7 @@ contract Aon is Initializable, Nonces {
      * @param signature   The EIP-712 signature bytes.
      * @param preimageHash The preimage hash for the lock.
      * @param claimAddress The address that can claim the locked funds.
+     * @param refundAddress The address that can refund the locked funds.
      * @param timelock     The timelock value for the lock.
      * @param processingFee The fee for the processing of the refund.
      */
@@ -408,12 +410,14 @@ contract Aon is Initializable, Nonces {
         bytes calldata signature,
         bytes32 preimageHash,
         address claimAddress,
+        address refundAddress,
         uint256 timelock,
         uint256 processingFee
     ) external {
         if (block.timestamp > deadline) revert SignatureExpired();
         if (address(swapContract) == address(0)) revert InvalidSwapContract();
         if (claimAddress == address(0)) revert InvalidClaimAddress();
+        if (refundAddress == address(0)) revert InvalidRefundAddress();
 
         (uint256 refundAmount, uint256 nonce) = isValidRefund(contributor, processingFee);
 
@@ -422,20 +426,9 @@ contract Aon is Initializable, Nonces {
         // -----------------------------------------------------------------
         verifyEIP712SignatureForRefund(contributor, swapContract, refundAmount, nonce, deadline, signature);
 
-        // Consume nonce to prevent replay
-        _useNonce(contributor);
-
-        // -----------------------------------------------------------------
-        // Execute refund
-        // -----------------------------------------------------------------
-        contributions[contributor] = 0;
-        emit ContributionRefunded(contributor, refundAmount);
-
-        // slither-disable-next-line low-level-calls
-        (bool success, bytes memory reason) = address(swapContract).call{value: refundAmount}(
-            abi.encodeWithSignature("lock(bytes32,address,uint256)", preimageHash, claimAddress, timelock)
+        executeRefundToSwapContract(
+            contributor, swapContract, refundAmount, preimageHash, claimAddress, refundAddress, timelock
         );
-        require(success, FailedToRefund(reason));
     }
 
     function verifyEIP712SignatureForRefund(
@@ -495,11 +488,13 @@ contract Aon is Initializable, Nonces {
         bytes calldata signature,
         bytes32 preimageHash,
         address claimAddress,
+        address refundAddress,
         uint256 timelock
     ) external {
         if (block.timestamp > deadline) revert SignatureExpired();
         if (address(swapContract) == address(0)) revert InvalidSwapContract();
         if (claimAddress == address(0)) revert InvalidClaimAddress();
+        if (refundAddress == address(0)) revert InvalidRefundAddress();
 
         isValidClaim();
         uint256 creatorAmount = claimableBalance();
@@ -508,7 +503,7 @@ contract Aon is Initializable, Nonces {
         verifyClaimSignature(swapContract, deadline, signature);
 
         // Execute claim
-        executeClaimToSwapContract(swapContract, creatorAmount, preimageHash, claimAddress, timelock);
+        executeClaimToSwapContract(swapContract, creatorAmount, preimageHash, claimAddress, refundAddress, timelock);
     }
 
     function cancel() external {
@@ -547,6 +542,7 @@ contract Aon is Initializable, Nonces {
         uint256 creatorAmount,
         bytes32 preimageHash,
         address claimAddress,
+        address refundAddress,
         uint256 timelock
     ) private {
         status = Status.Claimed;
@@ -563,9 +559,39 @@ contract Aon is Initializable, Nonces {
         if (creatorAmount > 0) {
             // slither-disable-next-line low-level-calls
             (bool success, bytes memory reason) = address(swapContract).call{value: creatorAmount}(
-                abi.encodeWithSignature("lock(bytes32,address,uint256)", preimageHash, claimAddress, timelock)
+                abi.encodeWithSignature(
+                    "lock(bytes32,address,address,uint256)", preimageHash, claimAddress, refundAddress, timelock
+                )
             );
             require(success, FailedToSendFundsInClaim(reason));
         }
+    }
+
+    function executeRefundToSwapContract(
+        address contributor,
+        ISwapHTLC swapContract,
+        uint256 refundAmount,
+        bytes32 preimageHash,
+        address claimAddress,
+        address refundAddress,
+        uint256 timelock
+    ) private {
+        // Consume nonce to prevent replay
+        _useNonce(contributor);
+
+        // -----------------------------------------------------------------
+        // Execute refund
+        // -----------------------------------------------------------------
+        contributions[contributor] = 0;
+        emit ContributionRefunded(contributor, refundAmount);
+
+        // slither-disable-next-line low-level-calls
+        (bool success, bytes memory reason) = address(swapContract).call{value: refundAmount}(
+            abi.encodeWithSignature(
+                "lock(bytes32,address,address,uint256)", preimageHash, claimAddress, refundAddress, timelock
+            )
+        );
+
+        require(success, FailedToRefund(reason));
     }
 }

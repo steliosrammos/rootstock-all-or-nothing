@@ -694,7 +694,15 @@ contract AonTest is Test {
         vm.expectEmit(true, true, true, true);
         emit ContributionRefunded(contributor1, contributionAmount);
         aon.refundToSwapContract(
-            contributor1, ISwapHTLC(swapContract), deadline, signature, bytes32(0), address(0x123), 3600, 0
+            contributor1,
+            ISwapHTLC(swapContract),
+            deadline,
+            signature,
+            bytes32(0),
+            address(0x123),
+            address(0x456),
+            3600,
+            0
         );
 
         // Verify refund was successful
@@ -725,17 +733,23 @@ contract AonTest is Test {
         bytes memory signature =
             _createRefundSignature(contributor1, swapContract, expectedRefund, deadline, contributor1PrivateKey);
 
-        uint256 initialBalance = swapContract.balance;
-
         // Execute refund with signature
         vm.expectEmit(true, true, true, true);
         emit ContributionRefunded(contributor1, expectedRefund);
         aon.refundToSwapContract(
-            contributor1, ISwapHTLC(swapContract), deadline, signature, bytes32(0), address(0x123), 3600, processingFee
+            contributor1,
+            ISwapHTLC(swapContract),
+            deadline,
+            signature,
+            bytes32(0),
+            address(0x123),
+            address(0x456),
+            3600,
+            processingFee
         );
 
         // Verify refund was successful
-        assertEq(swapContract.balance, initialBalance + expectedRefund, "Swap contract should receive refund");
+        assertEq(swapContract.balance, expectedRefund, "Swap contract should receive refund");
         assertEq(aon.contributions(contributor1), 0, "Contribution should be cleared");
         assertEq(aon.nonces(contributor1), nonce + 1, "Nonce should be incremented");
     }
@@ -802,7 +816,15 @@ contract AonTest is Test {
 
         vm.expectRevert(Aon.InvalidSignature.selector);
         aon.refundToSwapContract(
-            contributor1, ISwapHTLC(swapContract), deadline, signature, bytes32(0), address(0x123), 3600, 0
+            contributor1,
+            ISwapHTLC(swapContract),
+            deadline,
+            signature,
+            bytes32(0),
+            address(0x123),
+            address(0x456),
+            3600,
+            0
         );
     }
 
@@ -842,7 +864,15 @@ contract AonTest is Test {
 
         vm.expectRevert(Aon.SignatureExpired.selector);
         aon.refundToSwapContract(
-            contributor1, ISwapHTLC(swapContract), deadline, signature, bytes32(0), address(0x123), 3600, 0
+            contributor1,
+            ISwapHTLC(swapContract),
+            deadline,
+            signature,
+            bytes32(0),
+            address(0x123),
+            address(0x456),
+            3600,
+            0
         );
     }
 
@@ -890,7 +920,9 @@ contract AonTest is Test {
         // Execute claim with signature
         vm.expectEmit(true, true, true, true);
         emit Claimed(creatorAmount, aon.totalCreatorFee(), aon.totalContributorFee());
-        aon.claimToSwapContract(ISwapHTLC(swapContract), deadline, signature, bytes32(0), address(0x456), 7200);
+        aon.claimToSwapContract(
+            ISwapHTLC(swapContract), deadline, signature, bytes32(0), address(0x456), address(0x789), 7200
+        );
 
         // Verify claim was successful
         assertEq(
@@ -934,7 +966,9 @@ contract AonTest is Test {
         bytes memory signature = abi.encodePacked(r, s, v);
 
         vm.expectRevert(Aon.InvalidSignature.selector);
-        aon.claimToSwapContract(ISwapHTLC(swapContract), deadline, signature, bytes32(0), address(0x456), 7200);
+        aon.claimToSwapContract(
+            ISwapHTLC(swapContract), deadline, signature, bytes32(0), address(0x456), address(0x789), 7200
+        );
     }
 
     function test_ClaimToSwapContract_FailsWithExpiredSignature() public {
@@ -971,7 +1005,120 @@ contract AonTest is Test {
         vm.warp(deadline + 1);
 
         vm.expectRevert(Aon.SignatureExpired.selector);
-        aon.claimToSwapContract(ISwapHTLC(swapContract), deadline, signature, bytes32(0), address(0x456), 7200);
+        aon.claimToSwapContract(
+            ISwapHTLC(swapContract), deadline, signature, bytes32(0), address(0x456), address(0x789), 7200
+        );
+    }
+
+    function test_RefundToSwapContract_FailsWithInvalidSwapContract() public {
+        uint256 contributionAmount = 1 ether;
+        vm.prank(contributor1);
+        aon.contribute{value: contributionAmount}(0, 0);
+
+        vm.prank(creator);
+        aon.cancel();
+
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory signature = new bytes(65);
+
+        vm.expectRevert(Aon.InvalidSwapContract.selector);
+        aon.refundToSwapContract(
+            contributor1,
+            ISwapHTLC(address(0)),
+            deadline,
+            signature,
+            bytes32(0),
+            address(0x123),
+            address(0x456),
+            3600,
+            0
+        );
+    }
+
+    function test_RefundToSwapContract_FailsWithInvalidClaimAddress() public {
+        uint256 contributionAmount = 1 ether;
+        vm.prank(contributor1);
+        aon.contribute{value: contributionAmount}(0, 0);
+
+        vm.prank(creator);
+        aon.cancel();
+
+        address swapContract = address(0x123);
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory signature = new bytes(65);
+
+        vm.expectRevert(Aon.InvalidClaimAddress.selector);
+        aon.refundToSwapContract(
+            contributor1, ISwapHTLC(swapContract), deadline, signature, bytes32(0), address(0), address(0x456), 3600, 0
+        );
+    }
+
+    function test_RefundToSwapContract_FailsWithInvalidRefundAddress() public {
+        uint256 contributionAmount = 1 ether;
+        vm.prank(contributor1);
+        aon.contribute{value: contributionAmount}(0, 0);
+
+        vm.prank(creator);
+        aon.cancel();
+
+        address swapContract = address(0x123);
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory signature = new bytes(65);
+
+        vm.expectRevert(Aon.InvalidRefundAddress.selector);
+        aon.refundToSwapContract(
+            contributor1, ISwapHTLC(swapContract), deadline, signature, bytes32(0), address(0x123), address(0), 3600, 0
+        );
+    }
+
+    function test_ClaimToSwapContract_FailsWithInvalidSwapContract() public {
+        uint256 contributionAmount = GOAL;
+        vm.prank(contributor1);
+        aon.contribute{value: contributionAmount}(0, 0);
+
+        vm.warp(aon.endTime() + 1 days);
+
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory signature = new bytes(65);
+
+        vm.expectRevert(Aon.InvalidSwapContract.selector);
+        aon.claimToSwapContract(
+            ISwapHTLC(address(0)), deadline, signature, bytes32(0), address(0x456), address(0x789), 7200
+        );
+    }
+
+    function test_ClaimToSwapContract_FailsWithInvalidClaimAddress() public {
+        uint256 contributionAmount = GOAL;
+        vm.prank(contributor1);
+        aon.contribute{value: contributionAmount}(0, 0);
+
+        vm.warp(aon.endTime() + 1 days);
+
+        address swapContract = address(0x456);
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory signature = new bytes(65);
+
+        vm.expectRevert(Aon.InvalidClaimAddress.selector);
+        aon.claimToSwapContract(
+            ISwapHTLC(swapContract), deadline, signature, bytes32(0), address(0), address(0x789), 7200
+        );
+    }
+
+    function test_ClaimToSwapContract_FailsWithInvalidRefundAddress() public {
+        uint256 contributionAmount = GOAL;
+        vm.prank(contributor1);
+        aon.contribute{value: contributionAmount}(0, 0);
+
+        vm.warp(aon.endTime() + 1 days);
+
+        address swapContract = address(0x456);
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory signature = new bytes(65);
+
+        vm.expectRevert(Aon.InvalidRefundAddress.selector);
+        aon.claimToSwapContract(
+            ISwapHTLC(swapContract), deadline, signature, bytes32(0), address(0x456), address(0), 7200
+        );
     }
 }
 
