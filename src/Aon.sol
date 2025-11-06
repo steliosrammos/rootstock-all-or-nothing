@@ -112,7 +112,6 @@ contract Aon is Initializable, Nonces {
         Successful, // 3 - Goal reached and claim window expired
         Failed, // 4 - Time expired without reaching goal
         Finalized // 5 - All operations complete, contract can be cleaned up
-
     }
 
     // ---------------------------------------------------------------------
@@ -326,7 +325,7 @@ contract Aon is Initializable, Nonces {
         if (msg.sender != factory.owner()) revert OnlyFactoryCanSwipeFunds();
 
         /*
-            We take the claim/refund twice as the max delay, in case the funds were not claimed by the creator 
+            We take the claim/refund twice as the max delay, in case the funds were not claimed by the creator
             (claim window) and then some funds were not refunded (refund window).
         */
         // slither-disable-next-line timestamp

@@ -1156,25 +1156,25 @@ contract MaliciousFactory is IOwnable {
     }
 }
 
-/// @dev An attacker contract to test re-entrancy on swipeFunds.
-/// It poses as the factory owner and tries to cancel the campaign
-/// when it receives the swiped funds.
-contract MaliciousFactoryOwner {
-    Aon aon;
+    /// @dev An attacker contract to test re-entrancy on swipeFunds.
+    /// It poses as the factory owner and tries to cancel the campaign
+    /// when it receives the swiped funds.
+    contract MaliciousFactoryOwner {
+        Aon aon;
 
-    function setAon(Aon _aon) external {
-        aon = _aon;
-    }
+        function setAon(Aon _aon) external {
+            aon = _aon;
+        }
 
-    function swipe() external {
-        aon.swipeFunds();
-    }
+        function swipe() external {
+            aon.swipeFunds();
+        }
 
-    receive() external payable {
-        // When we receive the swiped funds, try to cancel.
-        // The `cancel` call will check if `msg.sender == factory.owner()`.
-        // Since this contract is the factory owner in the test setup,
-        // the vulnerable contract will allow this.
-        aon.cancel();
+        receive() external payable {
+            // When we receive the swiped funds, try to cancel.
+            // The `cancel` call will check if `msg.sender == factory.owner()`.
+            // Since this contract is the factory owner in the test setup,
+            // the vulnerable contract will allow this.
+            aon.cancel();
+        }
     }
-}
