@@ -4,7 +4,6 @@ out = "out"
 libs = ["lib"]
 gas_reports = ["*"]
 gas_reports_ignore = ["test/**", "script/**"]
-via_ir = true
 
 
 [profile.ci]
