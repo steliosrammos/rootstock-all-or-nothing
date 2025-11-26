@@ -377,12 +377,19 @@ contract AonTest is Test {
         aon.cancel();
 
         uint256 contributorInitialBalance = contributor1.balance;
+        uint256 initialTotalContributorFee = aon.totalContributorFee();
+        
         vm.prank(contributor1);
         aon.refund(processingFee);
         assertEq(
             contributor1.balance,
             contributorInitialBalance + contributionAmount - processingFee,
             "Contributor should get money back"
+        );
+        assertEq(
+            aon.totalContributorFee(),
+            initialTotalContributorFee + processingFee,
+            "Total contributor fee should increase by processing fee"
         );
     }
 
@@ -729,6 +736,7 @@ contract AonTest is Test {
         address swapContract = address(0x123);
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce = aon.nonces(contributor1);
+        uint256 initialTotalContributorFee = aon.totalContributorFee();
 
         bytes memory signature =
             _createRefundSignature(contributor1, swapContract, expectedRefund, deadline, contributor1PrivateKey);
@@ -752,6 +760,11 @@ contract AonTest is Test {
         assertEq(swapContract.balance, expectedRefund, "Swap contract should receive refund");
         assertEq(aon.contributions(contributor1), 0, "Contribution should be cleared");
         assertEq(aon.nonces(contributor1), nonce + 1, "Nonce should be incremented");
+        assertEq(
+                aon.totalContributorFee(),
+                initialTotalContributorFee + processingFee,
+                "Total contributor fee should increase by processing fee"
+            );
     }
 
     // Helper function to create refund signature

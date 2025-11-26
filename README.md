@@ -1,10 +1,5 @@
 # AON (All-Or-Nothing) Crowdfunding Smart Contracts
 
-![CI](https://github.com/steliosrammos/rootstock-all-or-nothing/actions/workflows/test.yml/badge.svg)
-[![codecov](https://codecov.io/gh/steliosrammos/rootstock-all-or-nothing/graph/badge.svg?token=NO72KTXM8J)](https://codecov.io/gh/steliosrammos/rootstock-all-or-nothing)
-![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Solidity](https://img.shields.io/badge/Solidity-^0.8.30-blue.svg)
-
 A decentralized crowdfunding platform implementing an "All-Or-Nothing" funding model with cross-chain support. Contributors can pledge funds to campaigns, and creators can only claim funds if the funding goal is reached within the specified timeframe.
 
 ## Features
@@ -54,7 +49,7 @@ const tx = await factory.create(
 
 ## Network Support
 
-- **Local Development**: Anvil (Chain ID: 31337)
+- **Local Development**: Anvil (Chain ID: 33)
 - **RSK Testnet**: Chain ID 31
 - **RSK Mainnet**: Chain ID 30
 
@@ -81,3 +76,111 @@ For security considerations and audit information, see [ARCHITECTURE.md](ARCHITE
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Foundry
+
+**Foundry is a blazing fast, portable and modular toolkit for Ethereum application development written in Rust.**
+
+Foundry consists of:
+
+-   **Forge**: Ethereum testing framework (like Truffle, Hardhat and DappTools).
+-   **Cast**: Swiss army knife for interacting with EVM smart contracts, sending transactions and getting chain data.
+-   **Anvil**: Local Ethereum node, akin to Ganache, Hardhat Network.
+-   **Chisel**: Fast, utilitarian, and verbose solidity REPL.
+
+## Documentation
+
+https://book.getfoundry.sh/
+
+## Usage
+
+### Build
+
+```shell
+$ forge build
+```
+
+### Test
+
+```shell
+$ forge test
+```
+
+### Format
+
+```shell
+$ forge fmt
+```
+
+### Gas Snapshots
+
+```shell
+$ forge snapshot
+```
+
+### Anvil
+
+```shell
+$ anvil
+```
+
+### Deploy
+
+```shell
+$ forge script script/Counter.s.sol:CounterScript --rpc-url <your_rpc_url> --private-key <your_private_key>
+```
+
+### Cast
+
+```shell
+$ cast <subcommand>
+```
+
+### Help
+
+```shell
+$ forge --help
+$ anvil --help
+$ cast --help
+```
+
+
+
+deploy: 
+```shell
+forge script script/Deploy.s.sol --rpc-url http://localhost:8545 --broadcast
+```
+
+add amount to deployment public key:
+```shell
+docker exec boltz-anvil cast send --rpc-url https://anvil.dev.regtest.geyser.fund --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 0x9cCA66b3F0655E8511ff25B8797034B8D99835cC --value 100ether
+```
+
+call the contribute method in the aon contract with value:
+```shell
+cast send 0x4F57F9239eFCBf43e5920f579D03B3849C588396 "contribute(uint256)" 0 --value 879450000000000 --private-key 64b075e4ca5c8f179bcf13ba8743cebcf68c5a86051ac7afefa613332fbd19db --rpc-url http://localhost:8545
+```
+
+check if the contract contribute got the balance:
+```shell
+cast call 0xa37aE2b259D35aF4aBdde122eC90B204323ED304 "contributions(address)" 0x0479f1b824fe3defb5960556931d61a738b164c4 --rpc-url http://localhost:8545
+```
+
+
+1. Deploy aon:
+```shell
+forge script script/Deploy.s.sol --rpc-url http://localhost:8545 --broadcast
+```
+2. Add deployed aon address to geyser-development .env file.
+3. Add amount to the geyser-deployment address
+```shell
+docker exec boltz-anvil cast send --rpc-url http://anvil:8545 --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 0x9cCA66b3F0655E8511ff25B8797034B8D99835cC --value 10ether
+```
+4. Add amount to the user's rsk address: same command as above, only replae the rsk address before the value.
+
+5. Launch a project. 
+
+
+
+
+cast send --rpc-url http://localhost:8545 --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 
