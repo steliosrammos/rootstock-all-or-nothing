@@ -147,6 +147,8 @@ contract Aon is Initializable, Nonces {
     mapping(address => uint256) public contributions;
     IAonGoalReached public goalReachedStrategy;
 
+    uint8 public constant VERSION = 1;
+
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();

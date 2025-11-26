@@ -2,7 +2,6 @@
 pragma solidity ^0.8.30;
 
 import "openzeppelin-contracts/contracts/proxy/Proxy.sol";
-
 contract AonProxy is Proxy {
     address public immutable implementation;
 
