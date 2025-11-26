@@ -378,7 +378,7 @@ contract AonTest is Test {
 
         uint256 contributorInitialBalance = contributor1.balance;
         uint256 initialTotalContributorFee = aon.totalContributorFee();
-        
+
         vm.prank(contributor1);
         aon.refund(processingFee);
         assertEq(
@@ -761,10 +761,10 @@ contract AonTest is Test {
         assertEq(aon.contributions(contributor1), 0, "Contribution should be cleared");
         assertEq(aon.nonces(contributor1), nonce + 1, "Nonce should be incremented");
         assertEq(
-                aon.totalContributorFee(),
-                initialTotalContributorFee + processingFee,
-                "Total contributor fee should increase by processing fee"
-            );
+            aon.totalContributorFee(),
+            initialTotalContributorFee + processingFee,
+            "Total contributor fee should increase by processing fee"
+        );
     }
 
     // Helper function to create refund signature
@@ -1169,25 +1169,25 @@ contract MaliciousFactory is IOwnable {
     }
 }
 
-    /// @dev An attacker contract to test re-entrancy on swipeFunds.
-    /// It poses as the factory owner and tries to cancel the campaign
-    /// when it receives the swiped funds.
-    contract MaliciousFactoryOwner {
-        Aon aon;
+/// @dev An attacker contract to test re-entrancy on swipeFunds.
+/// It poses as the factory owner and tries to cancel the campaign
+/// when it receives the swiped funds.
+contract MaliciousFactoryOwner {
+    Aon aon;
 
-        function setAon(Aon _aon) external {
-            aon = _aon;
-        }
-
-        function swipe() external {
-            aon.swipeFunds();
-        }
-
-        receive() external payable {
-            // When we receive the swiped funds, try to cancel.
-            // The `cancel` call will check if `msg.sender == factory.owner()`.
-            // Since this contract is the factory owner in the test setup,
-            // the vulnerable contract will allow this.
-            aon.cancel();
-        }
+    function setAon(Aon _aon) external {
+        aon = _aon;
     }
+
+    function swipe() external {
+        aon.swipeFunds();
+    }
+
+    receive() external payable {
+        // When we receive the swiped funds, try to cancel.
+        // The `cancel` call will check if `msg.sender == factory.owner()`.
+        // Since this contract is the factory owner in the test setup,
+        // the vulnerable contract will allow this.
+        aon.cancel();
+    }
+}

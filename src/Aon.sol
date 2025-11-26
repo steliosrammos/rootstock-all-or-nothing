@@ -112,6 +112,7 @@ contract Aon is Initializable, Nonces {
         Successful, // 3 - Goal reached and claim window expired
         Failed, // 4 - Time expired without reaching goal
         Finalized // 5 - All operations complete, contract can be cleaned up
+
     }
 
     // ---------------------------------------------------------------------

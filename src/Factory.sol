@@ -31,7 +31,8 @@ contract Factory is Ownable {
     ) external {
         AonProxy proxy = new AonProxy(implementation);
         emit AonCreated(address(proxy));
-        Aon(address(proxy))
-            .initialize(creator, goalInEther, durationInSeconds, goalReachedStrategy, claimOrRefundWindow);
+        Aon(address(proxy)).initialize(
+            creator, goalInEther, durationInSeconds, goalReachedStrategy, claimOrRefundWindow
+        );
     }
 }
