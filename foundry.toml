@@ -5,6 +5,7 @@ libs = ["lib"]
 gas_reports = ["*"]
 gas_reports_ignore = ["test/**", "script/**"]
 
+
 [profile.ci]
 src = "src"
 out = "out"

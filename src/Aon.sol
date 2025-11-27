@@ -378,6 +378,8 @@ contract Aon is Initializable, Nonces {
     function refund(uint256 processingFee) external {
         (uint256 refundAmount,) = isValidRefund(msg.sender, processingFee);
 
+        totalContributorFee += processingFee;
+
         contributions[msg.sender] = 0;
         emit ContributionRefunded(msg.sender, refundAmount);
 
@@ -426,6 +428,8 @@ contract Aon is Initializable, Nonces {
         // Verify EIP-712 signature
         // -----------------------------------------------------------------
         verifyEIP712SignatureForRefund(contributor, swapContract, refundAmount, nonce, deadline, signature);
+
+        totalContributorFee += processingFee;
 
         executeRefundToSwapContract(
             contributor, swapContract, refundAmount, preimageHash, claimAddress, refundAddress, timelock

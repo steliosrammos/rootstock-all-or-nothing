@@ -23,6 +23,8 @@ contract AonTest is Test {
     uint256 private constant GOAL = 10 ether;
     uint256 private constant DURATION = 30 days;
     uint256 private constant PLATFORM_FEE = 250; // 2.5% in basis points
+    uint256 private constant CONTRIBUTION_AMOUNT = 1 ether;
+    uint256 private constant PROCESSING_FEE = 0.1 ether;
 
     event ContributionReceived(address indexed contributor, uint256 amount);
     event ContributionRefunded(address indexed contributor, uint256 amount);
@@ -89,14 +91,13 @@ contract AonTest is Test {
     */
 
     function test_Contribute_Success() public {
-        uint256 contributionAmount = 1 ether;
         vm.prank(contributor1);
         vm.expectEmit(true, true, true, true);
-        emit ContributionReceived(contributor1, contributionAmount);
-        aon.contribute{value: contributionAmount}(0, 0);
+        emit ContributionReceived(contributor1, CONTRIBUTION_AMOUNT);
+        aon.contribute{value: CONTRIBUTION_AMOUNT}(0, 0);
 
-        assertEq(address(aon).balance, contributionAmount, "Contract balance should increase");
-        assertEq(aon.contributions(contributor1), contributionAmount, "Contributor's balance should be recorded");
+        assertEq(address(aon).balance, CONTRIBUTION_AMOUNT, "Contract balance should increase");
+        assertEq(aon.contributions(contributor1), CONTRIBUTION_AMOUNT, "Contributor's balance should be recorded");
     }
 
     function test_Contribute_FailsIfZeroAmount() public {
@@ -126,36 +127,33 @@ contract AonTest is Test {
     */
 
     function test_Contribute_WithContributorFee_Success() public {
-        uint256 contributionAmount = 1 ether;
-        uint256 contributorFeeAmount = 0.1 ether;
-        uint256 expectedContribution = contributionAmount - contributorFeeAmount;
+        uint256 contributorFeeAmount = PROCESSING_FEE;
+        uint256 expectedContribution = CONTRIBUTION_AMOUNT - contributorFeeAmount;
 
         vm.prank(contributor1);
         vm.expectEmit(true, true, true, true);
         emit ContributionReceived(contributor1, expectedContribution);
-        aon.contribute{value: contributionAmount}(0, contributorFeeAmount);
+        aon.contribute{value: CONTRIBUTION_AMOUNT}(0, contributorFeeAmount);
 
-        assertEq(address(aon).balance, contributionAmount, "Contract balance should include contributor fee");
+        assertEq(address(aon).balance, CONTRIBUTION_AMOUNT, "Contract balance should include contributor fee");
         assertEq(aon.contributions(contributor1), expectedContribution, "Contribution should exclude contributor fee");
         assertEq(aon.totalContributorFee(), contributorFeeAmount, "Total contributor fee should be tracked");
     }
 
     function test_Contribute_WithContributorFee_FailsIfContributorFeeExceedsContribution() public {
-        uint256 contributionAmount = 1 ether;
         uint256 contributorFeeAmount = 1.1 ether; // Contributor fee exceeds contribution
 
         vm.prank(contributor1);
         vm.expectRevert(Aon.ContributorFeeCannotExceedContributionAmount.selector);
-        aon.contribute{value: contributionAmount}(0, contributorFeeAmount);
+        aon.contribute{value: CONTRIBUTION_AMOUNT}(0, contributorFeeAmount);
     }
 
     function test_Contribute_WithContributorFee_FailsIfContributorFeeEqualsContribution() public {
-        uint256 contributionAmount = 1 ether;
-        uint256 contributorFeeAmount = 1 ether; // Contributor fee equals contribution (should fail)
+        uint256 contributorFeeAmount = CONTRIBUTION_AMOUNT; // Contributor fee equals contribution (should fail)
 
         vm.prank(contributor1);
         vm.expectRevert(Aon.ContributorFeeCannotExceedContributionAmount.selector);
-        aon.contribute{value: contributionAmount}(0, contributorFeeAmount);
+        aon.contribute{value: CONTRIBUTION_AMOUNT}(0, contributorFeeAmount);
     }
 
     function test_Contribute_MultipleContributorFees_AccumulateCorrectly() public {
@@ -190,16 +188,15 @@ contract AonTest is Test {
     }
 
     function test_ContributeFor_WithContributorFees_Success() public {
-        uint256 contributionAmount = 1 ether;
-        uint256 contributorFeeAmount = 0.1 ether;
-        uint256 expectedContribution = contributionAmount - contributorFeeAmount;
+        uint256 contributorFeeAmount = PROCESSING_FEE;
+        uint256 expectedContribution = CONTRIBUTION_AMOUNT - contributorFeeAmount;
 
         vm.prank(factoryOwner); // Factory calls contributeFor
         vm.expectEmit(true, true, true, true);
         emit ContributionReceived(contributor1, expectedContribution);
-        aon.contributeFor{value: contributionAmount}(contributor1, 0, contributorFeeAmount);
+        aon.contributeFor{value: CONTRIBUTION_AMOUNT}(contributor1, 0, contributorFeeAmount);
 
-        assertEq(address(aon).balance, contributionAmount, "Contract balance should include contributor fee");
+        assertEq(address(aon).balance, CONTRIBUTION_AMOUNT, "Contract balance should include contributor fee");
         assertEq(aon.contributions(contributor1), expectedContribution, "Contribution should exclude contributor fee");
         assertEq(aon.totalContributorFee(), contributorFeeAmount, "Total contributor fee should be tracked");
     }
@@ -332,9 +329,8 @@ contract AonTest is Test {
     */
 
     function test_Refund_SuccessIfCampaignFailed() public {
-        uint256 contributionAmount = 1 ether;
         vm.prank(contributor1);
-        aon.contribute{value: contributionAmount}(0, 0);
+        aon.contribute{value: CONTRIBUTION_AMOUNT}(0, 0);
 
         vm.warp(aon.endTime() + 1 days); // Let campaign fail
         assertTrue(aon.isFailed(), "Campaign should have failed");
@@ -342,19 +338,18 @@ contract AonTest is Test {
         uint256 contributorInitialBalance = contributor1.balance;
         vm.prank(contributor1);
         vm.expectEmit(true, true, true, true);
-        emit ContributionRefunded(contributor1, contributionAmount);
+        emit ContributionRefunded(contributor1, CONTRIBUTION_AMOUNT);
         aon.refund(0);
 
         assertEq(
-            contributor1.balance, contributorInitialBalance + contributionAmount, "Contributor should get money back"
+            contributor1.balance, contributorInitialBalance + CONTRIBUTION_AMOUNT, "Contributor should get money back"
         );
         assertEq(aon.contributions(contributor1), 0, "Contribution record should be cleared");
     }
 
     function test_Refund_SuccessIfCancelled() public {
-        uint256 contributionAmount = 1 ether;
         vm.prank(contributor1);
-        aon.contribute{value: contributionAmount}(0, 0);
+        aon.contribute{value: CONTRIBUTION_AMOUNT}(0, 0);
 
         vm.prank(creator);
         aon.cancel();
@@ -363,41 +358,45 @@ contract AonTest is Test {
         vm.prank(contributor1);
         aon.refund(0);
         assertEq(
-            contributor1.balance, contributorInitialBalance + contributionAmount, "Contributor should get money back"
+            contributor1.balance, contributorInitialBalance + CONTRIBUTION_AMOUNT, "Contributor should get money back"
         );
     }
 
     function test_Refund_WithProcessingFee_Success() public {
-        uint256 contributionAmount = 1 ether;
-        uint256 processingFee = 0.1 ether;
         vm.prank(contributor1);
-        aon.contribute{value: contributionAmount}(0, 0);
+        aon.contribute{value: CONTRIBUTION_AMOUNT}(0, 0);
 
         vm.prank(creator);
         aon.cancel();
 
         uint256 contributorInitialBalance = contributor1.balance;
+        uint256 initialTotalContributorFee = aon.totalContributorFee();
+
         vm.prank(contributor1);
-        aon.refund(processingFee);
+        aon.refund(PROCESSING_FEE);
         assertEq(
             contributor1.balance,
-            contributorInitialBalance + contributionAmount - processingFee,
+            contributorInitialBalance + CONTRIBUTION_AMOUNT - PROCESSING_FEE,
             "Contributor should get money back"
+        );
+        assertEq(
+            aon.totalContributorFee(),
+            initialTotalContributorFee + PROCESSING_FEE,
+            "Total contributor fee should increase by processing fee"
         );
     }
 
     function test_Refund_WithProcessingFee_Failure() public {
-        uint256 contributionAmount = 1 ether;
         uint256 processingFee = 1.1 ether;
         vm.prank(contributor1);
-        aon.contribute{value: contributionAmount}(0, 0);
+        aon.contribute{value: CONTRIBUTION_AMOUNT}(0, 0);
 
         vm.prank(creator);
         aon.cancel();
 
         vm.prank(contributor1);
         vm.expectRevert(
-            abi.encodeWithSelector(Aon.ProcessingFeeHigherThanRefundAmount.selector, contributionAmount, processingFee)
+            abi.encodeWithSelector(Aon.ProcessingFeeHigherThanRefundAmount.selector, CONTRIBUTION_AMOUNT, processingFee)
         );
         aon.refund(processingFee);
     }
@@ -448,13 +447,12 @@ contract AonTest is Test {
     }
 
     function test_Refund_WithContributorFees_ContributorFeesNotRefunded() public {
-        uint256 contributionAmount = 1 ether;
-        uint256 contributorFeeAmount = 0.1 ether;
-        uint256 expectedRefund = contributionAmount - contributorFeeAmount;
+        uint256 contributorFeeAmount = PROCESSING_FEE;
+        uint256 expectedRefund = CONTRIBUTION_AMOUNT - contributorFeeAmount;
 
         // Contribute with contributor fee
         vm.prank(contributor1);
-        aon.contribute{value: contributionAmount}(0, contributorFeeAmount);
+        aon.contribute{value: CONTRIBUTION_AMOUNT}(0, contributorFeeAmount);
 
         // Let campaign fail
         vm.warp(aon.endTime() + 1 days);
@@ -480,13 +478,12 @@ contract AonTest is Test {
     }
 
     function test_Refund_WithContributorFees_AfterCancellation_ContributorFeesNotRefunded() public {
-        uint256 contributionAmount = 1 ether;
-        uint256 contributorFeeAmount = 0.1 ether;
-        uint256 expectedRefund = contributionAmount - contributorFeeAmount;
+        uint256 contributorFeeAmount = PROCESSING_FEE;
+        uint256 expectedRefund = CONTRIBUTION_AMOUNT - contributorFeeAmount;
 
         // Contribute with contributor fee
         vm.prank(contributor1);
-        aon.contribute{value: contributionAmount}(0, contributorFeeAmount);
+        aon.contribute{value: CONTRIBUTION_AMOUNT}(0, contributorFeeAmount);
 
         // Cancel campaign
         vm.prank(creator);
@@ -655,9 +652,8 @@ contract AonTest is Test {
     }
 
     function test_RefundToSwapContract_Success() public {
-        uint256 contributionAmount = 1 ether;
         vm.prank(contributor1);
-        aon.contribute{value: contributionAmount}(0, 0);
+        aon.contribute{value: CONTRIBUTION_AMOUNT}(0, 0);
 
         // Cancel campaign to allow refunds
         vm.prank(creator);
@@ -675,7 +671,7 @@ contract AonTest is Test {
                 ),
                 contributor1,
                 swapContract,
-                contributionAmount,
+                CONTRIBUTION_AMOUNT,
                 nonce,
                 deadline
             )
@@ -692,7 +688,7 @@ contract AonTest is Test {
 
         // Execute refund with signature
         vm.expectEmit(true, true, true, true);
-        emit ContributionRefunded(contributor1, contributionAmount);
+        emit ContributionRefunded(contributor1, CONTRIBUTION_AMOUNT);
         aon.refundToSwapContract(
             contributor1,
             ISwapHTLC(swapContract),
@@ -707,19 +703,19 @@ contract AonTest is Test {
 
         // Verify refund was successful
         assertEq(
-            swapContract.balance, swapContractInitialBalance + contributionAmount, "Swap contract should receive refund"
+            swapContract.balance,
+            swapContractInitialBalance + CONTRIBUTION_AMOUNT,
+            "Swap contract should receive refund"
         );
         assertEq(aon.contributions(contributor1), 0, "Contribution should be cleared");
         assertEq(aon.nonces(contributor1), nonce + 1, "Nonce should be incremented");
     }
 
     function test_RefundToSwapContract_WithProcessingFee_Success() public {
-        uint256 contributionAmount = 1 ether;
         vm.prank(contributor1);
-        aon.contribute{value: contributionAmount}(0, 0);
+        aon.contribute{value: CONTRIBUTION_AMOUNT}(0, 0);
 
-        uint256 processingFee = 0.1 ether;
-        uint256 expectedRefund = contributionAmount - processingFee;
+        uint256 expectedRefund = CONTRIBUTION_AMOUNT - PROCESSING_FEE;
 
         // Cancel campaign to allow refunds
         vm.prank(creator);
@@ -729,6 +725,7 @@ contract AonTest is Test {
         address swapContract = address(0x123);
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce = aon.nonces(contributor1);
+        uint256 initialTotalContributorFee = aon.totalContributorFee();
 
         bytes memory signature =
             _createRefundSignature(contributor1, swapContract, expectedRefund, deadline, contributor1PrivateKey);
@@ -745,13 +742,18 @@ contract AonTest is Test {
             address(0x123),
             address(0x456),
             3600,
-            processingFee
+            PROCESSING_FEE
         );
 
         // Verify refund was successful
         assertEq(swapContract.balance, expectedRefund, "Swap contract should receive refund");
         assertEq(aon.contributions(contributor1), 0, "Contribution should be cleared");
         assertEq(aon.nonces(contributor1), nonce + 1, "Nonce should be incremented");
+        assertEq(
+            aon.totalContributorFee(),
+            initialTotalContributorFee + PROCESSING_FEE,
+            "Total contributor fee should increase by processing fee"
+        );
     }
 
     // Helper function to create refund signature
@@ -783,9 +785,8 @@ contract AonTest is Test {
     }
 
     function test_RefundToSwapContract_FailsWithInvalidSignature() public {
-        uint256 contributionAmount = 1 ether;
         vm.prank(contributor1);
-        aon.contribute{value: contributionAmount}(0, 0);
+        aon.contribute{value: CONTRIBUTION_AMOUNT}(0, 0);
 
         vm.prank(creator);
         aon.cancel();
@@ -801,7 +802,7 @@ contract AonTest is Test {
                 ),
                 contributor1,
                 swapContract,
-                contributionAmount,
+                CONTRIBUTION_AMOUNT,
                 nonce,
                 deadline
             )
@@ -829,9 +830,8 @@ contract AonTest is Test {
     }
 
     function test_RefundToSwapContract_FailsWithExpiredSignature() public {
-        uint256 contributionAmount = 1 ether;
         vm.prank(contributor1);
-        aon.contribute{value: contributionAmount}(0, 0);
+        aon.contribute{value: CONTRIBUTION_AMOUNT}(0, 0);
 
         vm.prank(creator);
         aon.cancel();
@@ -847,7 +847,7 @@ contract AonTest is Test {
                 ),
                 contributor1,
                 swapContract,
-                contributionAmount,
+                CONTRIBUTION_AMOUNT,
                 nonce,
                 deadline
             )
@@ -1011,9 +1011,8 @@ contract AonTest is Test {
     }
 
     function test_RefundToSwapContract_FailsWithInvalidSwapContract() public {
-        uint256 contributionAmount = 1 ether;
         vm.prank(contributor1);
-        aon.contribute{value: contributionAmount}(0, 0);
+        aon.contribute{value: CONTRIBUTION_AMOUNT}(0, 0);
 
         vm.prank(creator);
         aon.cancel();
@@ -1036,9 +1035,8 @@ contract AonTest is Test {
     }
 
     function test_RefundToSwapContract_FailsWithInvalidClaimAddress() public {
-        uint256 contributionAmount = 1 ether;
         vm.prank(contributor1);
-        aon.contribute{value: contributionAmount}(0, 0);
+        aon.contribute{value: CONTRIBUTION_AMOUNT}(0, 0);
 
         vm.prank(creator);
         aon.cancel();
@@ -1054,9 +1052,8 @@ contract AonTest is Test {
     }
 
     function test_RefundToSwapContract_FailsWithInvalidRefundAddress() public {
-        uint256 contributionAmount = 1 ether;
         vm.prank(contributor1);
-        aon.contribute{value: contributionAmount}(0, 0);
+        aon.contribute{value: CONTRIBUTION_AMOUNT}(0, 0);
 
         vm.prank(creator);
         aon.cancel();
