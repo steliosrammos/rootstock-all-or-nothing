@@ -453,7 +453,8 @@ contract Aon is Initializable, Nonces {
         require(signer == contributor, InvalidSignature());
     }
 
-    function claim() external {
+    function claim(uint256 processingFee) external {
+        totalCreatorFee += processingFee;
         (uint256 creatorAmount,) = canClaim(msg.sender);
         status = Status.Claimed;
 
@@ -494,8 +495,11 @@ contract Aon is Initializable, Nonces {
         bytes32 preimageHash,
         address claimAddress,
         address refundAddress,
-        uint256 timelock
+        uint256 timelock,
+        uint256 processingFee
     ) external {
+        totalCreatorFee += processingFee;
+
         if (block.timestamp > deadline) revert SignatureExpired();
         if (address(swapContract) == address(0)) revert InvalidSwapContract();
         if (claimAddress == address(0)) revert InvalidClaimAddress();
