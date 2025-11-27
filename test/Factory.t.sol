@@ -108,7 +108,7 @@ contract FactoryTest is Test {
         vm.prank(creator);
 
         vm.expectRevert(Aon.InvalidDuration.selector);
-        factory.create(payable(creator), 10 ether, 12 hours, address(goalStrategy), 7 days);
+        factory.create(payable(creator), 10 ether, 30 minutes, address(goalStrategy), 7 days);
     }
 
     function test_Create_WithZeroClaimWindow_Reverts() public {
@@ -123,7 +123,7 @@ contract FactoryTest is Test {
         vm.prank(creator);
 
         vm.expectRevert(Aon.InvalidClaimOrRefundWindow.selector);
-        factory.create(payable(creator), 10 ether, 30 days, address(goalStrategy), 12 hours);
+        factory.create(payable(creator), 10 ether, 30 days, address(goalStrategy), 30 minutes);
     }
 
     function test_Create_WithDifferentCreator() public {
@@ -172,8 +172,8 @@ contract FactoryTest is Test {
     function test_Create_WithMinimumValidValues() public {
         vm.prank(creator);
 
-        // Test with minimum valid values
-        factory.create(payable(creator), 0.001 ether, 252 hours, address(goalStrategy), 25 hours);
+        // Test with minimum valid values (60 minutes for both duration and claim window)
+        factory.create(payable(creator), 0.001 ether, 60 minutes, address(goalStrategy), 60 minutes);
     }
 
     function test_Create_WithLargeValues() public {
