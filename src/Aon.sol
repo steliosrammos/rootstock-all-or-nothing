@@ -164,8 +164,8 @@ contract Aon is Initializable, Nonces {
         // Validate input parameters to prevent malicious campaigns
         // Minimum goal: 0.001 ETH (to prevent dust attacks)
         if (_goal == 0 ether) revert InvalidGoal();
-        if (_durationInSeconds < 24 hours) revert InvalidDuration();
-        if (_claimOrRefundWindow < 24 hours) revert InvalidClaimOrRefundWindow();
+        if (_durationInSeconds < 60 minutes) revert InvalidDuration();
+        if (_claimOrRefundWindow < 60 minutes) revert InvalidClaimOrRefundWindow();
         if (_goalReachedStrategy == address(0)) revert InvalidGoalReachedStrategy();
         if (_creator == address(0)) revert InvalidCreator();
 
