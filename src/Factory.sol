@@ -11,8 +11,9 @@ contract Factory is Ownable {
     address public implementation;
 
     error InvalidImplementation();
+    error InvalidOwner();
 
-    constructor(address _implementation) Ownable(msg.sender) {
+    constructor(address _implementation, address _owner) Ownable(_owner) {
         if (_implementation == address(0)) revert InvalidImplementation();
         implementation = _implementation;
     }

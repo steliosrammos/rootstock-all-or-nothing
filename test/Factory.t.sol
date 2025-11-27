@@ -25,7 +25,7 @@ contract FactoryTest is Test {
         goalStrategy = new AonGoalReachedNative();
 
         // Deploy factory
-        factory = new Factory(address(aonImplementation));
+        factory = new Factory(address(aonImplementation), owner);
 
         vm.stopPrank();
     }
@@ -33,6 +33,16 @@ contract FactoryTest is Test {
     function test_Constructor_SetsImplementation() public view {
         assertEq(factory.implementation(), address(aonImplementation));
         assertEq(factory.owner(), owner);
+    }
+
+    function test_Constructor_WithZeroImplementation_Reverts() public {
+        vm.expectRevert(Factory.InvalidImplementation.selector);
+        new Factory(address(0), owner);
+    }
+
+    function test_Constructor_WithZeroOwner_Reverts() public {
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableInvalidOwner.selector, address(0)));
+        new Factory(address(aonImplementation), address(0));
     }
 
     function test_SetImplementation_OnlyOwner() public {
