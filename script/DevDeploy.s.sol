@@ -27,7 +27,7 @@ contract Deploy is Script {
         AonGoalReachedNative goalReachedStrategy = new AonGoalReachedNative();
 
         // 3. Deploy the Factory, linking it to the Aon logic contract
-        Factory factory = new Factory(address(aonImplementation));
+        Factory factory = new Factory(address(aonImplementation), deployerAddress);
 
         vm.stopBroadcast();
 
