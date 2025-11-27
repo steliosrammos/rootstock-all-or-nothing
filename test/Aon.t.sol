@@ -217,16 +217,18 @@ contract AonTest is Test {
         assertTrue(aon.isSuccessful(), "Campaign should be successful");
 
         // Creator claims the funds
-        uint256 contractBalance = address(aon).balance;
-        uint256 totalFee = aon.totalCreatorFee() + aon.totalContributorFee();
-        uint256 creatorAmount = contractBalance - totalFee;
+        uint256 processingFee = 0;
+        // creatorAmount is calculated after processingFee is added to totalCreatorFee in claim()
+        // So we need to account for that: creatorAmount = claimableBalance() - processingFee
+        uint256 creatorAmount = aon.claimableBalance() - processingFee;
+        uint256 totalFee = aon.totalCreatorFee() + aon.totalContributorFee() + processingFee;
         uint256 creatorInitialBalance = creator.balance;
         uint256 factoryInitialBalance = factoryOwner.balance;
 
         vm.startPrank(creator);
         vm.expectEmit(true, true, false, true);
-        emit Claimed(creatorAmount, aon.totalCreatorFee(), aon.totalContributorFee());
-        aon.claim();
+        emit Claimed(creatorAmount, aon.totalCreatorFee() + processingFee, aon.totalContributorFee());
+        aon.claim(processingFee);
         vm.stopPrank();
 
         assertEq(address(aon).balance, 0, "Contract balance should be zero after claim");
@@ -258,16 +260,18 @@ contract AonTest is Test {
         assertTrue(aon.isSuccessful(), "Campaign should be successful");
 
         // Creator claims the funds
-        uint256 contractBalance = address(aon).balance;
-        uint256 totalFee = aon.totalCreatorFee() + aon.totalContributorFee();
-        uint256 creatorAmount = contractBalance - totalFee;
+        uint256 processingFee = 0;
+        // creatorAmount is calculated after processingFee is added to totalCreatorFee in claim()
+        // So we need to account for that: creatorAmount = claimableBalance() - processingFee
+        uint256 creatorAmount = aon.claimableBalance() - processingFee;
+        uint256 totalFee = aon.totalCreatorFee() + aon.totalContributorFee() + processingFee;
         uint256 creatorInitialBalance = creator.balance;
         uint256 factoryInitialBalance = factoryOwner.balance;
 
         vm.startPrank(creator);
         vm.expectEmit(true, true, false, true);
-        emit Claimed(creatorAmount, aon.totalCreatorFee(), aon.totalContributorFee());
-        aon.claim();
+        emit Claimed(creatorAmount, aon.totalCreatorFee() + processingFee, aon.totalContributorFee());
+        aon.claim(processingFee);
         vm.stopPrank();
 
         assertEq(address(aon).balance, 0, "Contract balance should be zero after claim");
@@ -281,6 +285,42 @@ contract AonTest is Test {
         );
     }
 
+    function test_Claim_WithProcessingFee_Success() public {
+        // Contributors meet the goal
+        vm.prank(contributor1);
+        aon.contribute{value: 5 ether}(0, 0);
+        vm.prank(contributor2);
+        aon.contribute{value: 5 ether}(0, 0);
+
+        // Fast-forward past the end time
+        vm.warp(aon.endTime() + 1 days);
+        assertTrue(aon.isSuccessful(), "Campaign should be successful");
+
+        // Creator claims the funds with processing fee
+        uint256 processingFee = PROCESSING_FEE;
+        // creatorAmount is calculated after processingFee is added to totalCreatorFee in claim()
+        // So we need to account for that: creatorAmount = claimableBalance() - processingFee
+        uint256 creatorAmount = aon.claimableBalance() - processingFee;
+        uint256 totalFee = aon.totalCreatorFee() + aon.totalContributorFee() + processingFee;
+        uint256 creatorInitialBalance = creator.balance;
+        uint256 factoryInitialBalance = factoryOwner.balance;
+
+        vm.startPrank(creator);
+        vm.expectEmit(true, true, false, true);
+        emit Claimed(creatorAmount, aon.totalCreatorFee() + processingFee, aon.totalContributorFee());
+        aon.claim(processingFee);
+        vm.stopPrank();
+
+        assertEq(address(aon).balance, 0, "Contract balance should be zero after claim");
+        assertEq(creator.balance, creatorInitialBalance + creatorAmount, "Creator should receive the funds");
+        assertEq(
+            factoryOwner.balance,
+            factoryInitialBalance + totalFee,
+            "Factory should receive the fee including processing fee"
+        );
+        assertEq(aon.totalCreatorFee(), processingFee, "Total creator fee should equal processing fee");
+    }
+
     function test_Claim_FailsIfNotCreator() public {
         vm.prank(contributor1);
         aon.contribute{value: GOAL}(0, 0);
@@ -288,7 +328,7 @@ contract AonTest is Test {
 
         vm.prank(randomAddress);
         vm.expectRevert(Aon.OnlyCreatorCanClaim.selector);
-        aon.claim();
+        aon.claim(0);
     }
 
     function test_Claim_FailsIfGoalNotReached() public {
@@ -298,7 +338,7 @@ contract AonTest is Test {
 
         vm.prank(creator);
         vm.expectRevert(Aon.CannotClaimFailedContract.selector);
-        aon.claim();
+        aon.claim(0);
     }
 
     function test_Claim_FailsIfCampaignFailed() public {
@@ -310,7 +350,7 @@ contract AonTest is Test {
 
         vm.prank(creator);
         vm.expectRevert(Aon.CannotClaimFailedContract.selector);
-        aon.claim();
+        aon.claim(0);
     }
 
     function test_Claim_FailsIfCancelled() public {
@@ -321,7 +361,7 @@ contract AonTest is Test {
 
         vm.prank(creator);
         vm.expectRevert(Aon.CannotClaimCancelledContract.selector);
-        aon.claim();
+        aon.claim(0);
     }
 
     /*
@@ -877,21 +917,15 @@ contract AonTest is Test {
     }
 
     function test_ClaimToSwapContract_Success() public {
-        uint256 contributionAmount = GOAL; // Contribute exactly the goal amount
         vm.prank(contributor1);
-        aon.contribute{value: contributionAmount}(0, 0);
+        aon.contribute{value: GOAL}(0, 0);
 
-        // Fast-forward past the campaign end time
         vm.warp(aon.endTime() + 1 days);
-
-        // Verify goal is reached
         assertTrue(aon.isSuccessful(), "Campaign should be successful");
 
-        // Create signature for claim
         address swapContract = address(0x456);
         uint256 deadline = block.timestamp + 1 hours;
-        uint256 nonce = aon.nonces(creator);
-        uint256 claimAmount = address(aon).balance;
+        uint256 claimAmount = aon.claimableBalance();
 
         bytes32 structHash = keccak256(
             abi.encode(
@@ -899,38 +933,26 @@ contract AonTest is Test {
                 creator,
                 swapContract,
                 claimAmount,
-                nonce,
+                aon.nonces(creator),
                 deadline
             )
         );
 
-        bytes32 domainSeparator = aon.domainSeparator();
-        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
-
-        // Sign the digest with creator's private key
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", aon.domainSeparator(), structHash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(creatorPrivateKey, digest);
         bytes memory signature = abi.encodePacked(r, s, v);
 
-        uint256 swapContractInitialBalance = swapContract.balance;
+        uint256 initialNonce = aon.nonces(creator);
+        uint256 initialSwapBalance = swapContract.balance;
 
-        // Get the actual platform fee from the contract
-        uint256 platformFee = aon.totalCreatorFee() + aon.totalContributorFee();
-        uint256 creatorAmount = claimAmount - platformFee;
-
-        // Execute claim with signature
         vm.expectEmit(true, true, true, true);
-        emit Claimed(creatorAmount, aon.totalCreatorFee(), aon.totalContributorFee());
+        emit Claimed(claimAmount, aon.totalCreatorFee(), aon.totalContributorFee());
         aon.claimToSwapContract(
-            ISwapHTLC(swapContract), deadline, signature, bytes32(0), address(0x456), address(0x789), 7200
+            ISwapHTLC(swapContract), deadline, signature, bytes32(0), address(0x456), address(0x789), 7200, 0
         );
 
-        // Verify claim was successful
-        assertEq(
-            swapContract.balance,
-            swapContractInitialBalance + creatorAmount,
-            "Swap contract should receive creator amount"
-        );
-        assertEq(aon.nonces(creator), nonce + 1, "Nonce should be incremented");
+        assertEq(swapContract.balance, initialSwapBalance + claimAmount, "Swap contract should receive creator amount");
+        assertEq(aon.nonces(creator), initialNonce + 1, "Nonce should be incremented");
         assertEq(uint256(aon.status()), uint256(Aon.Status.Claimed), "Status should be Claimed");
     }
 
@@ -967,7 +989,7 @@ contract AonTest is Test {
 
         vm.expectRevert(Aon.InvalidSignature.selector);
         aon.claimToSwapContract(
-            ISwapHTLC(swapContract), deadline, signature, bytes32(0), address(0x456), address(0x789), 7200
+            ISwapHTLC(swapContract), deadline, signature, bytes32(0), address(0x456), address(0x789), 7200, 0
         );
     }
 
@@ -1006,7 +1028,7 @@ contract AonTest is Test {
 
         vm.expectRevert(Aon.SignatureExpired.selector);
         aon.claimToSwapContract(
-            ISwapHTLC(swapContract), deadline, signature, bytes32(0), address(0x456), address(0x789), 7200
+            ISwapHTLC(swapContract), deadline, signature, bytes32(0), address(0x456), address(0x789), 7200, 0
         );
     }
 
@@ -1080,7 +1102,7 @@ contract AonTest is Test {
 
         vm.expectRevert(Aon.InvalidSwapContract.selector);
         aon.claimToSwapContract(
-            ISwapHTLC(address(0)), deadline, signature, bytes32(0), address(0x456), address(0x789), 7200
+            ISwapHTLC(address(0)), deadline, signature, bytes32(0), address(0x456), address(0x789), 7200, 0
         );
     }
 
@@ -1097,7 +1119,7 @@ contract AonTest is Test {
 
         vm.expectRevert(Aon.InvalidClaimAddress.selector);
         aon.claimToSwapContract(
-            ISwapHTLC(swapContract), deadline, signature, bytes32(0), address(0), address(0x789), 7200
+            ISwapHTLC(swapContract), deadline, signature, bytes32(0), address(0), address(0x789), 7200, 0
         );
     }
 
@@ -1114,7 +1136,7 @@ contract AonTest is Test {
 
         vm.expectRevert(Aon.InvalidRefundAddress.selector);
         aon.claimToSwapContract(
-            ISwapHTLC(swapContract), deadline, signature, bytes32(0), address(0x456), address(0), 7200
+            ISwapHTLC(swapContract), deadline, signature, bytes32(0), address(0x456), address(0), 7200, 0
         );
     }
 }
