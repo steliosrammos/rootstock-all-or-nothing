@@ -313,7 +313,11 @@ contract AonTest is Test {
 
         assertEq(address(aon).balance, 0, "Contract balance should be zero after claim");
         assertEq(creator.balance, creatorInitialBalance + creatorAmount, "Creator should receive the funds");
-        assertEq(factoryOwner.balance, factoryInitialBalance + totalFee, "Factory should receive the fee including processing fee");
+        assertEq(
+            factoryOwner.balance,
+            factoryInitialBalance + totalFee,
+            "Factory should receive the fee including processing fee"
+        );
         assertEq(aon.totalCreatorFee(), processingFee, "Total creator fee should equal processing fee");
     }
 
