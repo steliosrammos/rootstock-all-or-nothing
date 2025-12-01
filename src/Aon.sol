@@ -137,6 +137,9 @@ contract Aon is Initializable, Nonces {
     uint256 public goal;
     uint256 public endTime;
     uint256 public totalCreatorFee;
+
+    // Is the contributor fee going to be a percentage?
+    // If so, why not save the percentage instead of constantly updating the total?
     uint256 public totalContributorFee;
     uint256 public claimOrRefundWindow;
 
@@ -162,6 +165,7 @@ contract Aon is Initializable, Nonces {
         uint256 _claimOrRefundWindow
     ) public initializer {
         // Validate input parameters to prevent malicious campaigns
+        // What dust attacks? Why does the comment say 0.001 but the check is 0?
         // Minimum goal: 0.001 ETH (to prevent dust attacks)
         if (_goal == 0 ether) revert InvalidGoal();
         if (_durationInSeconds < 60 minutes) revert InvalidDuration();
@@ -204,6 +208,7 @@ contract Aon is Initializable, Nonces {
         return address(this).balance - totalCreatorFee - totalContributorFee;
     }
 
+    // When the state variable is public, everyone can query it. Why does this function exist?
     /// @notice Returns true if the address is the creator of the AON campaign.
     function isCreator(address _address) public view returns (bool) {
         return _address == creator;
@@ -213,10 +218,12 @@ contract Aon is Initializable, Nonces {
     * Derived State Functions
     */
     function isFinalized() internal view returns (bool) {
+        // Why is there 1 wei buffer here? Why is the claimOrRefundWindow multiplied by 2?
         // slither-disable-next-line timestamp
         return (address(this).balance <= 1 wei && block.timestamp > (endTime + claimOrRefundWindow * 2));
     }
 
+    // These functions feel useless. Why is there a function to check for equality?
     function isCancelled() internal view returns (bool) {
         return status == Status.Cancelled;
     }
@@ -225,6 +232,7 @@ contract Aon is Initializable, Nonces {
         return status == Status.Claimed;
     }
 
+    // And why do some is{Status} functions have calculations in them while others just read status from state?
     // slither-disable-next-line timestamp
     function isUnclaimed() public view returns (bool) {
         // slither-disable-next-line timestamp
@@ -269,6 +277,8 @@ contract Aon is Initializable, Nonces {
 
         uint256 balance = address(this).balance;
 
+        // Why allow refunds when the balance minus the amount refunded would be less than the goal?
+        // Wouldn't it make more sense to check if the curent balance is under the goal?
         if (goalReachedStrategy.isGoalReached() && !isUnclaimed() && balance - refundAmount < goal) {
             revert InsufficientBalanceForRefund(balance, refundAmount, goal);
         }
@@ -326,6 +336,7 @@ contract Aon is Initializable, Nonces {
     function isValidSwipe() public view returns (bool) {
         if (msg.sender != factory.owner()) revert OnlyFactoryCanSwipeFunds();
 
+        // Why is there a buffer here? Why is the claimOrRefundWindow multiplied by 2?
         /*
             We take the claim/refund twice as the max delay, in case the funds were not claimed by the creator
             (claim window) and then some funds were not refunded (refund window).
@@ -335,6 +346,7 @@ contract Aon is Initializable, Nonces {
             revert CannotSwipeFundsBeforeEndOfClaimOrRefundWindow();
         }
 
+        // Why is swiping 1 wei not allowed?
         if (address(this).balance <= 1 wei) revert NoFundsToSwipe();
 
         return true;
@@ -357,6 +369,7 @@ contract Aon is Initializable, Nonces {
     function contributeFor(address contributor, uint256 creatorFee, uint256 contributorFee) public payable {
         isValidContribution(msg.value, contributorFee);
 
+        // What about the creator fee? Why is it counted to the contribution?
         uint256 contributionAmount = msg.value - contributorFee;
         contributions[contributor] += contributionAmount;
         totalCreatorFee += creatorFee;
@@ -427,6 +440,8 @@ contract Aon is Initializable, Nonces {
         // -----------------------------------------------------------------
         // Verify EIP-712 signature
         // -----------------------------------------------------------------
+        // preimageHash needs to be included in the signature verification
+        // So does the processingFee
         verifyEIP712SignatureForRefund(contributor, swapContract, refundAmount, nonce, deadline, signature);
 
         totalContributorFee += processingFee;
@@ -455,6 +470,7 @@ contract Aon is Initializable, Nonces {
 
     function claim(uint256 processingFee) external {
         totalCreatorFee += processingFee;
+        // Why return the nonce as second value when you don't use it?
         (uint256 creatorAmount,) = canClaim(msg.sender);
         status = Status.Claimed;
 
@@ -464,6 +480,7 @@ contract Aon is Initializable, Nonces {
         uint256 totalPlatformAmount = totalCreatorFee + totalContributorFee;
         if (totalPlatformAmount > 0) {
             // slither-disable-next-line low-level-calls
+            // Might be worthwhile to add a feeRecipient to the factory
             (bool success, bytes memory reason) = factory.owner().call{value: totalPlatformAmount}("");
             require(success, FailedToSendPlatformAmount(reason));
         }
@@ -509,6 +526,8 @@ contract Aon is Initializable, Nonces {
         uint256 creatorAmount = claimableBalance();
 
         // Verify signature
+        // preimageHash and the refundAddress need to be included in the signature verification
+        // So does the processingFee
         verifyClaimSignature(swapContract, deadline, signature);
 
         // Execute claim
@@ -536,6 +555,7 @@ contract Aon is Initializable, Nonces {
     function verifyClaimSignature(ISwapHTLC swapContract, uint256 deadline, bytes calldata signature) private {
         uint256 nonce = nonces(creator);
         bytes32 structHash = keccak256(
+            // Pass claimableBalance as paramter
             abi.encode(_CLAIM_TO_SWAP_CONTRACT_TYPEHASH, creator, swapContract, claimableBalance(), nonce, deadline)
         );
 
@@ -554,6 +574,9 @@ contract Aon is Initializable, Nonces {
         address refundAddress,
         uint256 timelock
     ) private {
+        // Please don't mix and match when functions do
+        // Move status update and paying out platform fees somewhere else
+        // And then reuse the function for swaps for refunds and claims
         status = Status.Claimed;
         emit Claimed(creatorAmount, totalCreatorFee, totalContributorFee);
 
@@ -578,6 +601,7 @@ contract Aon is Initializable, Nonces {
 
     function executeRefundToSwapContract(
         address contributor,
+        // Why define an interface when you don't use it?
         ISwapHTLC swapContract,
         uint256 refundAmount,
         bytes32 preimageHash,
@@ -585,6 +609,7 @@ contract Aon is Initializable, Nonces {
         address refundAddress,
         uint256 timelock
     ) private {
+        // There is no nonce in the parameters here. This is the wrong place to bump it
         // Consume nonce to prevent replay
         _useNonce(contributor);
 
@@ -597,7 +622,12 @@ contract Aon is Initializable, Nonces {
         // slither-disable-next-line low-level-calls
         (bool success, bytes memory reason) = address(swapContract).call{value: refundAmount}(
             abi.encodeWithSignature(
-                "lock(bytes32,address,address,uint256)", preimageHash, claimAddress, refundAddress, timelock
+                // Why hardcode this function signature?
+                "lock(bytes32,address,address,uint256)",
+                preimageHash,
+                claimAddress,
+                refundAddress,
+                timelock
             )
         );
 
