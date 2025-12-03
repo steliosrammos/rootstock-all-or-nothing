@@ -35,7 +35,7 @@ contract Aon is Initializable, Nonces {
     // Contract events
     event Claimed(uint256 creatorAmount, uint256 creatorFeeAmount, uint256 contributorFeeAmount);
     event Cancelled();
-    event FundsSwiped();
+    event FundsSwiped(address recipient);
 
     // Contribution events
     event ContributionRefunded(address indexed contributor, uint256 amount);
@@ -50,9 +50,11 @@ contract Aon is Initializable, Nonces {
     // Initialization validation errors
     error InvalidGoal();
     error InvalidDuration();
-    error InvalidClaimOrRefundWindow();
+    error InvalidClaimWindow();
+    error InvalidRefundWindow();
     error InvalidGoalReachedStrategy();
     error InvalidCreator();
+    error InvalidFeeRecipient();
 
     /*
     * STATE ERRORS
@@ -77,7 +79,7 @@ contract Aon is Initializable, Nonces {
     error CannotClaimUnclaimedContract();
     error OnlyCreatorCanClaim();
     error FailedToSendFundsInClaim(bytes reason);
-    error FailedToSendPlatformAmount(bytes reason);
+    error FailedToSendFeeRecipientAmount(bytes reason);
 
     // Refund Errors
     error CannotRefundNonActiveContract();
@@ -121,10 +123,12 @@ contract Aon is Initializable, Nonces {
     // solhint-disable-next-line max-line-length
     bytes32 private constant _EIP712_DOMAIN_TYPEHASH =
         keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
-    bytes32 private constant _REFUND_TO_SWAP_CONTRACT_TYPEHASH =
-        keccak256("Refund(address contributor,address swapContract,uint256 amount,uint256 nonce,uint256 deadline)");
-    bytes32 private constant _CLAIM_TO_SWAP_CONTRACT_TYPEHASH =
-        keccak256("Claim(address creator,address swapContract,uint256 amount,uint256 nonce,uint256 deadline)");
+    bytes32 private constant _REFUND_TO_SWAP_CONTRACT_TYPEHASH = keccak256(
+        "Refund(address contributor,address swapContract,uint256 amount,uint256 nonce,uint256 deadline,uint256 processingFee,bytes32 preimageHash)"
+    );
+    bytes32 private constant _CLAIM_TO_SWAP_CONTRACT_TYPEHASH = keccak256(
+        "Claim(address creator,address swapContract,uint256 amount,uint256 nonce,uint256 deadline,uint256 processingFee,bytes32 preimageHash)"
+    );
 
     // Cached domain separator built in `initialize`
     bytes32 private _DOMAIN_SEPARATOR;
@@ -134,14 +138,14 @@ contract Aon is Initializable, Nonces {
     */
     IOwnable public factory;
     address payable public creator;
+    address payable public feeRecipient;
     uint256 public goal;
     uint256 public endTime;
     uint256 public totalCreatorFee;
 
-    // Is the contributor fee going to be a percentage?
-    // If so, why not save the percentage instead of constantly updating the total?
     uint256 public totalContributorFee;
-    uint256 public claimOrRefundWindow;
+    uint256 public claimWindow;
+    uint256 public refundWindow;
 
     /*
     * The status is only updated to Active, Cancelled or Claimed, other statuses are derived from contract state
@@ -162,23 +166,29 @@ contract Aon is Initializable, Nonces {
         uint256 _goal,
         uint256 _durationInSeconds,
         address _goalReachedStrategy,
-        uint256 _claimOrRefundWindow
+        uint256 _claimWindow,
+        uint256 _refundWindow,
+        address payable _feeRecipient
     ) public initializer {
         // Validate input parameters to prevent malicious campaigns
         // What dust attacks? Why does the comment say 0.001 but the check is 0?
         // Minimum goal: 0.001 ETH (to prevent dust attacks)
         if (_goal == 0 ether) revert InvalidGoal();
         if (_durationInSeconds < 60 minutes) revert InvalidDuration();
-        if (_claimOrRefundWindow < 60 minutes) revert InvalidClaimOrRefundWindow();
+        if (_claimWindow < 60 minutes) revert InvalidClaimWindow();
+        if (_refundWindow < 60 minutes) revert InvalidRefundWindow();
         if (_goalReachedStrategy == address(0)) revert InvalidGoalReachedStrategy();
         if (_creator == address(0)) revert InvalidCreator();
+        if (_feeRecipient == address(0)) revert InvalidFeeRecipient();
 
         creator = _creator;
         goal = _goal;
         endTime = block.timestamp + _durationInSeconds;
-        claimOrRefundWindow = _claimOrRefundWindow;
+        claimWindow = _claimWindow;
+        refundWindow = _refundWindow;
         goalReachedStrategy = IAonGoalReached(_goalReachedStrategy);
         factory = IOwnable(msg.sender);
+        feeRecipient = _feeRecipient;
 
         // -----------------------------------------------------------------
         // Build and cache the EIP-712 domain separator for this contract
@@ -220,7 +230,7 @@ contract Aon is Initializable, Nonces {
     function isFinalized() internal view returns (bool) {
         // Why is there 1 wei buffer here? Why is the claimOrRefundWindow multiplied by 2?
         // slither-disable-next-line timestamp
-        return (address(this).balance <= 1 wei && block.timestamp > (endTime + claimOrRefundWindow * 2));
+        return (address(this).balance == 0 && block.timestamp > (endTime + claimWindow + refundWindow));
     }
 
     // These functions feel useless. Why is there a function to check for equality?
@@ -236,16 +246,16 @@ contract Aon is Initializable, Nonces {
     // slither-disable-next-line timestamp
     function isUnclaimed() public view returns (bool) {
         // slither-disable-next-line timestamp
-        return (block.timestamp > endTime + claimOrRefundWindow && goalReachedStrategy.isGoalReached());
+        return (block.timestamp > endTime + claimWindow && goalReachedStrategy.isGoalReached());
     }
 
     // slither-disable-next-line timestamp
-    function isFailed() public view returns (bool) {
+    function isFailed() internal view returns (bool) {
         // slither-disable-next-line timestamp
         return (block.timestamp > endTime && !goalReachedStrategy.isGoalReached());
     }
 
-    function isSuccessful() public view returns (bool) {
+    function isSuccessful() internal view returns (bool) {
         return (!isCancelled() && goalReachedStrategy.isGoalReached());
     }
 
@@ -300,14 +310,17 @@ contract Aon is Initializable, Nonces {
         if (!goalReachedStrategy.isGoalReached()) revert GoalNotReached();
     }
 
-    function canClaim(address _address) public view returns (uint256, uint256) {
+    function canClaim(address _address) public view returns (uint256) {
         if (!isCreator(_address)) revert OnlyCreatorCanClaim();
         isValidClaim();
 
-        uint256 nonce = nonces(_address);
         uint256 creatorAmount = claimableBalance();
 
-        return (creatorAmount, nonce);
+        return creatorAmount;
+    }
+
+    function getNonce(address _address) private view returns (uint256) {
+        return nonces(_address);
     }
 
     function canCancel() public view returns (bool) {
@@ -342,12 +355,12 @@ contract Aon is Initializable, Nonces {
             (claim window) and then some funds were not refunded (refund window).
         */
         // slither-disable-next-line timestamp
-        if (block.timestamp <= endTime + claimOrRefundWindow * 2) {
+        if (block.timestamp <= endTime + claimWindow + refundWindow) {
             revert CannotSwipeFundsBeforeEndOfClaimOrRefundWindow();
         }
 
         // Why is swiping 1 wei not allowed?
-        if (address(this).balance <= 1 wei) revert NoFundsToSwipe();
+        if (address(this).balance == 0) revert NoFundsToSwipe();
 
         return true;
     }
@@ -391,15 +404,23 @@ contract Aon is Initializable, Nonces {
     function refund(uint256 processingFee) external {
         (uint256 refundAmount,) = isValidRefund(msg.sender, processingFee);
 
-        totalContributorFee += processingFee;
+        // totalContributorFee += processingFee;
 
         contributions[msg.sender] = 0;
         emit ContributionRefunded(msg.sender, refundAmount);
 
+        // Send processing fee to fee recipient
+        if (processingFee > 0) {
+            (bool success, bytes memory reason) = feeRecipient.call{value: processingFee}("");
+            require(success, FailedToSendFeeRecipientAmount(reason));
+        }
+
         // We refund the contributor
         // slither-disable-next-line low-level-calls
-        (bool success, bytes memory reason) = msg.sender.call{value: refundAmount}("");
-        require(success, FailedToRefund(reason));
+        if (refundAmount > 0) {
+            (bool success, bytes memory reason) = msg.sender.call{value: refundAmount}("");
+            require(success, FailedToRefund(reason));
+        }
     }
 
     /**
@@ -440,27 +461,49 @@ contract Aon is Initializable, Nonces {
         // -----------------------------------------------------------------
         // Verify EIP-712 signature
         // -----------------------------------------------------------------
-        // preimageHash needs to be included in the signature verification
-        // So does the processingFee
-        verifyEIP712SignatureForRefund(contributor, swapContract, refundAmount, nonce, deadline, signature);
+        verifyEIP712SignatureForRefund(
+            contributor, swapContract, deadline, signature, preimageHash, processingFee, refundAmount, nonce
+        );
 
-        totalContributorFee += processingFee;
+        // totalContributorFee += processingFee;
 
-        executeRefundToSwapContract(
-            contributor, swapContract, refundAmount, preimageHash, claimAddress, refundAddress, timelock
+        _useNonce(contributor);
+        contributions[contributor] = 0;
+        emit ContributionRefunded(contributor, refundAmount);
+
+        sendFundsToSwapContract(
+            swapContract,
+            refundAmount,
+            processingFee,
+            Status.Claimed,
+            preimageHash,
+            claimAddress,
+            refundAddress,
+            timelock
         );
     }
 
     function verifyEIP712SignatureForRefund(
         address contributor,
         ISwapHTLC swapContract,
-        uint256 refundAmount,
-        uint256 nonce,
         uint256 deadline,
-        bytes calldata signature
+        bytes calldata signature,
+        bytes32 preimageHash,
+        uint256 processingFee,
+        uint256 refundAmount,
+        uint256 nonce
     ) private view {
         bytes32 structHash = keccak256(
-            abi.encode(_REFUND_TO_SWAP_CONTRACT_TYPEHASH, contributor, swapContract, refundAmount, nonce, deadline)
+            abi.encode(
+                _REFUND_TO_SWAP_CONTRACT_TYPEHASH,
+                contributor,
+                swapContract,
+                refundAmount,
+                nonce,
+                deadline,
+                processingFee,
+                preimageHash
+            )
         );
         bytes32 digest = MessageHashUtils.toTypedDataHash(_DOMAIN_SEPARATOR, structHash);
         address signer = ECDSA.recover(digest, signature);
@@ -471,7 +514,7 @@ contract Aon is Initializable, Nonces {
     function claim(uint256 processingFee) external {
         totalCreatorFee += processingFee;
         // Why return the nonce as second value when you don't use it?
-        (uint256 creatorAmount,) = canClaim(msg.sender);
+        uint256 creatorAmount = canClaim(msg.sender);
         status = Status.Claimed;
 
         emit Claimed(creatorAmount, totalCreatorFee, totalContributorFee);
@@ -482,7 +525,7 @@ contract Aon is Initializable, Nonces {
             // slither-disable-next-line low-level-calls
             // Might be worthwhile to add a feeRecipient to the factory
             (bool success, bytes memory reason) = factory.owner().call{value: totalPlatformAmount}("");
-            require(success, FailedToSendPlatformAmount(reason));
+            require(success, FailedToSendFeeRecipientAmount(reason));
         }
 
         // Send remaining funds to creator
@@ -526,12 +569,21 @@ contract Aon is Initializable, Nonces {
         uint256 creatorAmount = claimableBalance();
 
         // Verify signature
-        // preimageHash and the refundAddress need to be included in the signature verification
-        // So does the processingFee
-        verifyClaimSignature(swapContract, deadline, signature);
+        verifyClaimSignature(swapContract, creatorAmount, deadline, signature, preimageHash, processingFee);
 
-        // Execute claim
-        executeClaimToSwapContract(swapContract, creatorAmount, preimageHash, claimAddress, refundAddress, timelock);
+        status = Status.Claimed;
+        emit Claimed(creatorAmount, totalCreatorFee, totalContributorFee);
+
+        sendFundsToSwapContract(
+            swapContract,
+            creatorAmount,
+            totalCreatorFee + totalContributorFee,
+            Status.Claimed,
+            preimageHash,
+            claimAddress,
+            refundAddress,
+            timelock
+        );
     }
 
     function cancel() external {
@@ -540,23 +592,38 @@ contract Aon is Initializable, Nonces {
         emit Cancelled();
     }
 
-    function swipeFunds() public {
+    function swipeFunds(address payable recipient) public {
         isValidSwipe();
-        emit FundsSwiped();
+        emit FundsSwiped(recipient);
 
         // slither-disable-next-line low-level-calls
-        (bool success, bytes memory reason) = factory.owner().call{value: address(this).balance}("");
+        (bool success, bytes memory reason) = recipient.call{value: address(this).balance}("");
         require(success, FailedToSwipeFunds(reason));
     }
 
     /*
     * Private Functions
     */
-    function verifyClaimSignature(ISwapHTLC swapContract, uint256 deadline, bytes calldata signature) private {
+    function verifyClaimSignature(
+        ISwapHTLC swapContract,
+        uint256 _claimableBalance,
+        uint256 deadline,
+        bytes calldata signature,
+        bytes32 preimageHash,
+        uint256 processingFee
+    ) private {
         uint256 nonce = nonces(creator);
         bytes32 structHash = keccak256(
-            // Pass claimableBalance as paramter
-            abi.encode(_CLAIM_TO_SWAP_CONTRACT_TYPEHASH, creator, swapContract, claimableBalance(), nonce, deadline)
+            abi.encode(
+                _CLAIM_TO_SWAP_CONTRACT_TYPEHASH,
+                creator,
+                swapContract,
+                _claimableBalance,
+                nonce,
+                deadline,
+                processingFee,
+                preimageHash
+            )
         );
 
         bytes32 digest = MessageHashUtils.toTypedDataHash(_DOMAIN_SEPARATOR, structHash);
@@ -566,71 +633,32 @@ contract Aon is Initializable, Nonces {
         _useNonce(creator);
     }
 
-    function executeClaimToSwapContract(
+    function sendFundsToSwapContract(
         ISwapHTLC swapContract,
-        uint256 creatorAmount,
+        uint256 amount,
+        uint256 feeRecipientAmount,
+        Status statusToSet,
         bytes32 preimageHash,
         address claimAddress,
         address refundAddress,
         uint256 timelock
     ) private {
-        // Please don't mix and match when functions do
-        // Move status update and paying out platform fees somewhere else
-        // And then reuse the function for swaps for refunds and claims
-        status = Status.Claimed;
-        emit Claimed(creatorAmount, totalCreatorFee, totalContributorFee);
+        status = statusToSet;
 
-        // Send platform fees and tips
-        uint256 totalPlatformAmount = totalCreatorFee + totalContributorFee;
-        if (totalPlatformAmount > 0) {
-            (bool success, bytes memory reason) = factory.owner().call{value: totalPlatformAmount}("");
-            require(success, FailedToSendPlatformAmount(reason));
+        if (feeRecipientAmount > 0) {
+            (bool success, bytes memory reason) = feeRecipient.call{value: feeRecipientAmount}("");
+            require(success, FailedToSendFeeRecipientAmount(reason));
         }
 
         // Send remaining funds to swap contract
-        if (creatorAmount > 0) {
+        if (amount > 0) {
             // slither-disable-next-line low-level-calls
-            (bool success, bytes memory reason) = address(swapContract).call{value: creatorAmount}(
+            (bool success, bytes memory reason) = address(swapContract).call{value: amount}(
                 abi.encodeWithSignature(
                     "lock(bytes32,address,address,uint256)", preimageHash, claimAddress, refundAddress, timelock
                 )
             );
             require(success, FailedToSendFundsInClaim(reason));
         }
-    }
-
-    function executeRefundToSwapContract(
-        address contributor,
-        // Why define an interface when you don't use it?
-        ISwapHTLC swapContract,
-        uint256 refundAmount,
-        bytes32 preimageHash,
-        address claimAddress,
-        address refundAddress,
-        uint256 timelock
-    ) private {
-        // There is no nonce in the parameters here. This is the wrong place to bump it
-        // Consume nonce to prevent replay
-        _useNonce(contributor);
-
-        // -----------------------------------------------------------------
-        // Execute refund
-        // -----------------------------------------------------------------
-        contributions[contributor] = 0;
-        emit ContributionRefunded(contributor, refundAmount);
-
-        // slither-disable-next-line low-level-calls
-        (bool success, bytes memory reason) = address(swapContract).call{value: refundAmount}(
-            abi.encodeWithSignature(
-                // Why hardcode this function signature?
-                "lock(bytes32,address,address,uint256)",
-                preimageHash,
-                claimAddress,
-                refundAddress,
-                timelock
-            )
-        );
-
-        require(success, FailedToRefund(reason));
     }
 }

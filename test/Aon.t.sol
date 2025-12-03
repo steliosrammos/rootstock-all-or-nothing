@@ -19,6 +19,7 @@ contract AonTest is Test {
     address payable private contributor2 = payable(makeAddr("contributor2"));
     address private factoryOwner;
     address private randomAddress = makeAddr("random");
+    address payable private feeRecipient = payable(makeAddr("feeRecipient"));
 
     uint256 private constant GOAL = 10 ether;
     uint256 private constant DURATION = 30 days;
@@ -31,7 +32,7 @@ contract AonTest is Test {
     event Claimed(uint256 creatorAmount, uint256 creatorFeeAmount, uint256 contributorFeeAmount);
     event Cancelled();
     event Refunded();
-    event FundsSwiped();
+    event FundsSwiped(address recipient);
 
     /*
     * SETUP
@@ -56,7 +57,9 @@ contract AonTest is Test {
 
         // Initialize contract via proxy
         vm.prank(factoryOwner);
-        aon.initialize(creator, GOAL, block.timestamp + DURATION, address(goalReachedStrategy), 30 days);
+        aon.initialize(
+            creator, GOAL, block.timestamp + DURATION, address(goalReachedStrategy), 30 days, 30 days, feeRecipient
+        );
 
         vm.deal(contributor1, 100 ether);
         vm.deal(contributor2, 100 ether);
@@ -214,7 +217,7 @@ contract AonTest is Test {
 
         // Fast-forward past the end time
         vm.warp(aon.endTime() + 1 days);
-        assertTrue(aon.isSuccessful(), "Campaign should be successful");
+        assertTrue(aon.getStatus() == Aon.Status.Successful, "Campaign should be successful");
 
         // Creator claims the funds
         uint256 processingFee = 0;
@@ -245,7 +248,7 @@ contract AonTest is Test {
 
         // Fast-forward past the end time
         vm.warp(aon.endTime() + 1 days);
-        assertTrue(aon.isFailed(), "Campaign should have failed");
+        assertTrue(aon.getStatus() == Aon.Status.Failed, "Campaign should have failed");
     }
 
     function test_Claim_WithContributorFees_Success() public {
@@ -257,7 +260,7 @@ contract AonTest is Test {
 
         // Fast-forward past the end time
         vm.warp(aon.endTime() + 1 days);
-        assertTrue(aon.isSuccessful(), "Campaign should be successful");
+        assertTrue(aon.getStatus() == Aon.Status.Successful, "Campaign should be successful");
 
         // Creator claims the funds
         uint256 processingFee = 0;
@@ -294,7 +297,7 @@ contract AonTest is Test {
 
         // Fast-forward past the end time
         vm.warp(aon.endTime() + 1 days);
-        assertTrue(aon.isSuccessful(), "Campaign should be successful");
+        assertTrue(aon.getStatus() == Aon.Status.Successful, "Campaign should be successful");
 
         // Creator claims the funds with processing fee
         uint256 processingFee = PROCESSING_FEE;
@@ -346,7 +349,7 @@ contract AonTest is Test {
         aon.contribute{value: 1 ether}(0, 0); // Goal not reached
 
         vm.warp(aon.endTime() + 1 days);
-        assertTrue(aon.isFailed(), "Campaign should have failed");
+        assertTrue(aon.getStatus() == Aon.Status.Failed, "Campaign should have failed");
 
         vm.prank(creator);
         vm.expectRevert(Aon.CannotClaimFailedContract.selector);
@@ -373,7 +376,7 @@ contract AonTest is Test {
         aon.contribute{value: CONTRIBUTION_AMOUNT}(0, 0);
 
         vm.warp(aon.endTime() + 1 days); // Let campaign fail
-        assertTrue(aon.isFailed(), "Campaign should have failed");
+        assertTrue(aon.getStatus() == Aon.Status.Failed, "Campaign should have failed");
 
         uint256 contributorInitialBalance = contributor1.balance;
         vm.prank(contributor1);
@@ -419,11 +422,7 @@ contract AonTest is Test {
             contributorInitialBalance + CONTRIBUTION_AMOUNT - PROCESSING_FEE,
             "Contributor should get money back"
         );
-        assertEq(
-            aon.totalContributorFee(),
-            initialTotalContributorFee + PROCESSING_FEE,
-            "Total contributor fee should increase by processing fee"
-        );
+        assertEq(aon.totalContributorFee(), initialTotalContributorFee, "Total contributor fee should not change");
     }
 
     function test_Refund_WithProcessingFee_Failure() public {
@@ -447,7 +446,7 @@ contract AonTest is Test {
         aon.contribute{value: contributionAmount}(0, 0);
 
         // Fast-forward past claim window
-        vm.warp(aon.endTime() + aon.claimOrRefundWindow() + 1 days);
+        vm.warp(aon.endTime() + aon.claimWindow() + 1 days);
         assertTrue(aon.isUnclaimed(), "Campaign should be in unclaimed state");
 
         uint256 contributorInitialBalance = contributor1.balance;
@@ -496,7 +495,7 @@ contract AonTest is Test {
 
         // Let campaign fail
         vm.warp(aon.endTime() + 1 days);
-        assertTrue(aon.isFailed(), "Campaign should have failed");
+        assertTrue(aon.getStatus() == Aon.Status.Failed, "Campaign should have failed");
 
         uint256 contributorInitialBalance = contributor1.balance;
         uint256 factoryInitialBalance = factoryOwner.balance;
@@ -582,7 +581,7 @@ contract AonTest is Test {
         AonProxy proxy = new AonProxy(address(implementation));
         Aon aonForTest = Aon(address(proxy));
         vm.prank(address(factory)); // Pretend the factory is deploying this Aon instance
-        aonForTest.initialize(creator, GOAL, DURATION, address(goalReachedStrategy), 30 days);
+        aonForTest.initialize(creator, GOAL, DURATION, address(goalReachedStrategy), 30 days, 30 days, feeRecipient);
 
         // 4. Link the attacker contract to the new Aon instance
         attacker.setAon(aonForTest);
@@ -590,7 +589,7 @@ contract AonTest is Test {
         // 5. Fund the campaign and let it run its course until funds are swipe-able
         vm.prank(contributor1);
         aonForTest.contribute{value: 1 ether}(0, 0);
-        vm.warp(aonForTest.endTime() + (aonForTest.claimOrRefundWindow() * 2) + 1 days);
+        vm.warp(aonForTest.endTime() + aonForTest.claimWindow() + aonForTest.refundWindow() + 1 days);
 
         // 6. Attacker tries to swipe funds, which triggers a re-entrant call.
         // The attack should fail because the contract becomes finalized after funds are sent,
@@ -598,7 +597,7 @@ contract AonTest is Test {
         bytes memory innerError = abi.encodeWithSelector(Aon.CannotCancelFinalizedContract.selector);
         vm.expectRevert(abi.encodeWithSelector(Aon.FailedToSwipeFunds.selector, innerError));
         vm.prank(address(attacker));
-        attacker.swipe();
+        attacker.swipe(payable(address(attacker)));
 
         // 7. Check that the attack failed (which is good) - contract should not be cancelled
         assertEq(
@@ -652,24 +651,26 @@ contract AonTest is Test {
         aon.contribute{value: 1 ether}(0, 0);
 
         // Fast-forward past all windows
-        vm.warp(aon.endTime() + (aon.claimOrRefundWindow() * 2) + 1 days);
+        vm.warp(aon.endTime() + aon.claimWindow() + aon.refundWindow() + 1 days);
 
         uint256 contractBalance = address(aon).balance;
-        uint256 factoryInitialBalance = factoryOwner.balance;
+        uint256 feeRecipientInitialBalance = feeRecipient.balance;
 
         vm.prank(factoryOwner);
         vm.expectEmit(true, false, false, true);
-        emit FundsSwiped();
-        aon.swipeFunds();
+        emit FundsSwiped(feeRecipient);
+        aon.swipeFunds(feeRecipient);
 
         assertEq(address(aon).balance, 0, "Contract balance should be zero");
-        assertEq(factoryOwner.balance, factoryInitialBalance + contractBalance, "Factory owner should receive funds");
+        assertEq(
+            feeRecipient.balance, feeRecipientInitialBalance + contractBalance, "Fee recipient should receive funds"
+        );
     }
 
     function test_SwipeFunds_FailsIfNotFactoryOwner() public {
         vm.prank(randomAddress);
         vm.expectRevert(Aon.OnlyFactoryCanSwipeFunds.selector);
-        aon.swipeFunds();
+        aon.swipeFunds(feeRecipient);
     }
 
     function test_SwipeFunds_FailsIfWindowNotOver() public {
@@ -679,16 +680,16 @@ contract AonTest is Test {
 
         vm.prank(factoryOwner);
         vm.expectRevert(Aon.CannotSwipeFundsBeforeEndOfClaimOrRefundWindow.selector);
-        aon.swipeFunds();
+        aon.swipeFunds(feeRecipient);
     }
 
     function test_SwipeFunds_FailsIfNoFunds() public {
         // Fast-forward past all windows
-        vm.warp(aon.endTime() + (aon.claimOrRefundWindow() * 2) + 1 days);
+        vm.warp(aon.endTime() + aon.claimWindow() + aon.refundWindow() + 1 days);
 
         vm.prank(factoryOwner);
         vm.expectRevert(Aon.NoFundsToSwipe.selector);
-        aon.swipeFunds();
+        aon.swipeFunds(feeRecipient);
     }
 
     function test_RefundToSwapContract_Success() public {
@@ -703,17 +704,21 @@ contract AonTest is Test {
         address swapContract = address(0x123);
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce = aon.nonces(contributor1);
+        bytes32 preimageHash = bytes32(0);
+        uint256 processingFee = 0;
 
         bytes32 structHash = keccak256(
             abi.encode(
                 keccak256(
-                    "Refund(address contributor,address swapContract,uint256 amount,uint256 nonce,uint256 deadline)"
+                    "Refund(address contributor,address swapContract,uint256 amount,uint256 nonce,uint256 deadline,uint256 processingFee,bytes32 preimageHash)"
                 ),
                 contributor1,
                 swapContract,
                 CONTRIBUTION_AMOUNT,
                 nonce,
-                deadline
+                deadline,
+                processingFee,
+                preimageHash
             )
         );
 
@@ -766,9 +771,11 @@ contract AonTest is Test {
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce = aon.nonces(contributor1);
         uint256 initialTotalContributorFee = aon.totalContributorFee();
+        bytes32 preimageHash = bytes32(0);
 
-        bytes memory signature =
-            _createRefundSignature(contributor1, swapContract, expectedRefund, deadline, contributor1PrivateKey);
+        bytes memory signature = _createRefundSignatureWithFee(
+            contributor1, swapContract, expectedRefund, deadline, PROCESSING_FEE, preimageHash, contributor1PrivateKey
+        );
 
         // Execute refund with signature
         vm.expectEmit(true, true, true, true);
@@ -789,11 +796,7 @@ contract AonTest is Test {
         assertEq(swapContract.balance, expectedRefund, "Swap contract should receive refund");
         assertEq(aon.contributions(contributor1), 0, "Contribution should be cleared");
         assertEq(aon.nonces(contributor1), nonce + 1, "Nonce should be incremented");
-        assertEq(
-            aon.totalContributorFee(),
-            initialTotalContributorFee + PROCESSING_FEE,
-            "Total contributor fee should increase by processing fee"
-        );
+        assertEq(aon.totalContributorFee(), initialTotalContributorFee, "Total contributor fee should not change");
     }
 
     // Helper function to create refund signature
@@ -804,18 +807,33 @@ contract AonTest is Test {
         uint256 deadline,
         uint256 privateKey
     ) internal view returns (bytes memory) {
+        return _createRefundSignatureWithFee(contributor, swapContract, amount, deadline, 0, bytes32(0), privateKey);
+    }
+
+    // Helper function to create refund signature with processing fee and preimage hash
+    function _createRefundSignatureWithFee(
+        address contributor,
+        address swapContract,
+        uint256 amount,
+        uint256 deadline,
+        uint256 processingFee,
+        bytes32 preimageHash,
+        uint256 privateKey
+    ) internal view returns (bytes memory) {
         uint256 nonce = aon.nonces(contributor);
 
         bytes32 structHash = keccak256(
             abi.encode(
                 keccak256(
-                    "Refund(address contributor,address swapContract,uint256 amount,uint256 nonce,uint256 deadline)"
+                    "Refund(address contributor,address swapContract,uint256 amount,uint256 nonce,uint256 deadline,uint256 processingFee,bytes32 preimageHash)"
                 ),
                 contributor,
                 swapContract,
                 amount,
                 nonce,
-                deadline
+                deadline,
+                processingFee,
+                preimageHash
             )
         );
 
@@ -834,17 +852,21 @@ contract AonTest is Test {
         address swapContract = address(0x123);
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce = aon.nonces(contributor1);
+        bytes32 preimageHash = bytes32(0);
+        uint256 processingFee = 0;
 
         bytes32 structHash = keccak256(
             abi.encode(
                 keccak256(
-                    "Refund(address contributor,address swapContract,uint256 amount,uint256 nonce,uint256 deadline)"
+                    "Refund(address contributor,address swapContract,uint256 amount,uint256 nonce,uint256 deadline,uint256 processingFee,bytes32 preimageHash)"
                 ),
                 contributor1,
                 swapContract,
                 CONTRIBUTION_AMOUNT,
                 nonce,
-                deadline
+                deadline,
+                processingFee,
+                preimageHash
             )
         );
 
@@ -879,17 +901,21 @@ contract AonTest is Test {
         address swapContract = address(0x123);
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce = aon.nonces(contributor1);
+        bytes32 preimageHash = bytes32(0);
+        uint256 processingFee = 0;
 
         bytes32 structHash = keccak256(
             abi.encode(
                 keccak256(
-                    "Refund(address contributor,address swapContract,uint256 amount,uint256 nonce,uint256 deadline)"
+                    "Refund(address contributor,address swapContract,uint256 amount,uint256 nonce,uint256 deadline,uint256 processingFee,bytes32 preimageHash)"
                 ),
                 contributor1,
                 swapContract,
                 CONTRIBUTION_AMOUNT,
                 nonce,
-                deadline
+                deadline,
+                processingFee,
+                preimageHash
             )
         );
 
@@ -921,20 +947,26 @@ contract AonTest is Test {
         aon.contribute{value: GOAL}(0, 0);
 
         vm.warp(aon.endTime() + 1 days);
-        assertTrue(aon.isSuccessful(), "Campaign should be successful");
+        assertTrue(aon.getStatus() == Aon.Status.Successful, "Campaign should be successful");
 
         address swapContract = address(0x456);
         uint256 deadline = block.timestamp + 1 hours;
         uint256 claimAmount = aon.claimableBalance();
 
+        bytes32 preimageHash = bytes32(0);
+        uint256 processingFee = 0;
         bytes32 structHash = keccak256(
             abi.encode(
-                keccak256("Claim(address creator,address swapContract,uint256 amount,uint256 nonce,uint256 deadline)"),
+                keccak256(
+                    "Claim(address creator,address swapContract,uint256 amount,uint256 nonce,uint256 deadline,uint256 processingFee,bytes32 preimageHash)"
+                ),
                 creator,
                 swapContract,
                 claimAmount,
                 aon.nonces(creator),
-                deadline
+                deadline,
+                processingFee,
+                preimageHash
             )
         );
 
@@ -968,15 +1000,21 @@ contract AonTest is Test {
         uint256 nonce = aon.nonces(creator);
         uint256 claimAmount = address(aon).balance;
         address swapContract = address(0x456);
+        bytes32 preimageHash = bytes32(0);
+        uint256 processingFee = 0;
 
         bytes32 structHash = keccak256(
             abi.encode(
-                keccak256("Claim(address creator,address swapContract,uint256 amount,uint256 nonce,uint256 deadline)"),
+                keccak256(
+                    "Claim(address creator,address swapContract,uint256 amount,uint256 nonce,uint256 deadline,uint256 processingFee,bytes32 preimageHash)"
+                ),
                 creator,
                 swapContract,
                 claimAmount,
                 nonce,
-                deadline
+                deadline,
+                processingFee,
+                preimageHash
             )
         );
 
@@ -1005,15 +1043,21 @@ contract AonTest is Test {
         uint256 nonce = aon.nonces(creator);
         uint256 claimAmount = address(aon).balance;
         address swapContract = address(0x456);
+        bytes32 preimageHash = bytes32(0);
+        uint256 processingFee = 0;
 
         bytes32 structHash = keccak256(
             abi.encode(
-                keccak256("Claim(address creator,address swapContract,uint256 amount,uint256 nonce,uint256 deadline)"),
+                keccak256(
+                    "Claim(address creator,address swapContract,uint256 amount,uint256 nonce,uint256 deadline,uint256 processingFee,bytes32 preimageHash)"
+                ),
                 creator,
                 swapContract,
                 claimAmount,
                 nonce,
-                deadline
+                deadline,
+                processingFee,
+                preimageHash
             )
         );
 
@@ -1185,8 +1229,8 @@ contract MaliciousFactory is IOwnable {
             aon = _aon;
         }
 
-        function swipe() external {
-            aon.swipeFunds();
+        function swipe(address payable recipient) external {
+            aon.swipeFunds(recipient);
         }
 
         receive() external payable {
