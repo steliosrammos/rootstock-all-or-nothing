@@ -170,9 +170,6 @@ contract Aon is Initializable, Nonces {
         uint256 _refundWindow,
         address payable _feeRecipient
     ) public initializer {
-        // Validate input parameters to prevent malicious campaigns
-        // What dust attacks? Why does the comment say 0.001 but the check is 0?
-        // Minimum goal: 0.001 ETH (to prevent dust attacks)
         if (_goal == 0 ether) revert InvalidGoal();
         if (_durationInSeconds < 60 minutes) revert InvalidDuration();
         if (_claimWindow < 60 minutes) revert InvalidClaimWindow();
@@ -242,7 +239,6 @@ contract Aon is Initializable, Nonces {
         return status == Status.Claimed;
     }
 
-    // And why do some is{Status} functions have calculations in them while others just read status from state?
     // slither-disable-next-line timestamp
     function isUnclaimed() public view returns (bool) {
         // slither-disable-next-line timestamp
@@ -287,8 +283,6 @@ contract Aon is Initializable, Nonces {
 
         uint256 balance = address(this).balance;
 
-        // Why allow refunds when the balance minus the amount refunded would be less than the goal?
-        // Wouldn't it make more sense to check if the curent balance is under the goal?
         if (goalReachedStrategy.isGoalReached() && !isUnclaimed() && balance - refundAmount < goal) {
             revert InsufficientBalanceForRefund(balance, refundAmount, goal);
         }
@@ -349,17 +343,11 @@ contract Aon is Initializable, Nonces {
     function isValidSwipe() public view returns (bool) {
         if (msg.sender != factory.owner()) revert OnlyFactoryCanSwipeFunds();
 
-        // Why is there a buffer here? Why is the claimOrRefundWindow multiplied by 2?
-        /*
-            We take the claim/refund twice as the max delay, in case the funds were not claimed by the creator
-            (claim window) and then some funds were not refunded (refund window).
-        */
         // slither-disable-next-line timestamp
         if (block.timestamp <= endTime + claimWindow + refundWindow) {
             revert CannotSwipeFundsBeforeEndOfClaimOrRefundWindow();
         }
 
-        // Why is swiping 1 wei not allowed?
         if (address(this).balance == 0) revert NoFundsToSwipe();
 
         return true;
@@ -596,9 +584,22 @@ contract Aon is Initializable, Nonces {
         isValidSwipe();
         emit FundsSwiped(recipient);
 
-        // slither-disable-next-line low-level-calls
-        (bool success, bytes memory reason) = recipient.call{value: address(this).balance}("");
-        require(success, FailedToSwipeFunds(reason));
+        uint256 contractBalance = address(this).balance;
+
+        // If the contract is unclaimed, send the platform fee and the claimable amount to the fee recipient
+        if (this.isUnclaimed()) {
+            uint256 claimable = claimableBalance();
+            uint256 platformAmount = contractBalance - claimable;
+
+            (bool feeSent, bytes memory feeReason) = feeRecipient.call{value: platformAmount}("");
+            require(feeSent, FailedToSendFeeRecipientAmount(feeReason));
+
+            contractBalance = claimable; // Only claimable amount left for recipient
+        }
+
+        // Send everything (remaining) to recipient
+        (bool sent, bytes memory reason) = recipient.call{value: contractBalance}("");
+        require(sent, FailedToSwipeFunds(reason));
     }
 
     /*

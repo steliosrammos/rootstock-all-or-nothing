@@ -692,6 +692,132 @@ contract AonTest is Test {
         aon.swipeFunds(feeRecipient);
     }
 
+    function test_SwipeFunds_WithUnclaimedContract_SendsPlatformFeesToFeeRecipient() public {
+        // Contributors meet the goal
+        vm.prank(contributor1);
+        aon.contribute{value: GOAL}(0, 0);
+
+        // Fast-forward past end time, claim window, and refund window (contract becomes unclaimed and swipeable)
+        vm.warp(aon.endTime() + aon.claimWindow() + aon.refundWindow() + 1 days);
+        assertTrue(aon.isUnclaimed(), "Contract should be unclaimed");
+
+        uint256 contractBalance = address(aon).balance;
+        uint256 claimableAmount = aon.claimableBalance();
+        uint256 platformAmount = contractBalance - claimableAmount;
+        uint256 feeRecipientInitialBalance = feeRecipient.balance;
+        uint256 recipientInitialBalance = randomAddress.balance;
+
+        vm.prank(factoryOwner);
+        vm.expectEmit(true, false, false, true);
+        emit FundsSwiped(randomAddress);
+        aon.swipeFunds(payable(randomAddress));
+
+        assertEq(address(aon).balance, 0, "Contract balance should be zero");
+        assertEq(
+            feeRecipient.balance,
+            feeRecipientInitialBalance + platformAmount,
+            "Fee recipient should receive platform fees"
+        );
+        assertEq(
+            randomAddress.balance,
+            recipientInitialBalance + claimableAmount,
+            "Recipient should receive claimable amount"
+        );
+    }
+
+    function test_SwipeFunds_WithUnclaimedContract_WithContributorFees() public {
+        // Contributors meet the goal with contributor fees
+        uint256 contributorFee = 0.1 ether;
+        vm.prank(contributor1);
+        aon.contribute{value: GOAL + contributorFee}(0, contributorFee);
+
+        // Fast-forward past end time, claim window, and refund window (contract becomes unclaimed and swipeable)
+        vm.warp(aon.endTime() + aon.claimWindow() + aon.refundWindow() + 1 days);
+        assertTrue(aon.isUnclaimed(), "Contract should be unclaimed");
+
+        uint256 contractBalance = address(aon).balance;
+        uint256 claimableAmount = aon.claimableBalance();
+        uint256 platformAmount = contractBalance - claimableAmount;
+        uint256 feeRecipientInitialBalance = feeRecipient.balance;
+        uint256 recipientInitialBalance = randomAddress.balance;
+
+        vm.prank(factoryOwner);
+        aon.swipeFunds(payable(randomAddress));
+
+        assertEq(address(aon).balance, 0, "Contract balance should be zero");
+        assertEq(
+            feeRecipient.balance,
+            feeRecipientInitialBalance + platformAmount,
+            "Fee recipient should receive platform fees including contributor fees"
+        );
+        assertEq(
+            randomAddress.balance,
+            recipientInitialBalance + claimableAmount,
+            "Recipient should receive claimable amount"
+        );
+        assertEq(platformAmount, aon.totalContributorFee(), "Platform amount should equal contributor fees");
+    }
+
+    function test_SwipeFunds_WithFailedContract_SendsAllToRecipient() public {
+        // Contributors don't meet the goal
+        vm.prank(contributor1);
+        aon.contribute{value: 1 ether}(0, 0);
+
+        // Fast-forward past all windows
+        vm.warp(aon.endTime() + aon.claimWindow() + aon.refundWindow() + 1 days);
+        assertTrue(aon.getStatus() == Aon.Status.Failed, "Contract should be failed");
+
+        uint256 contractBalance = address(aon).balance;
+        uint256 feeRecipientInitialBalance = feeRecipient.balance;
+        uint256 recipientInitialBalance = randomAddress.balance;
+
+        vm.prank(factoryOwner);
+        vm.expectEmit(true, false, false, true);
+        emit FundsSwiped(randomAddress);
+        aon.swipeFunds(payable(randomAddress));
+
+        assertEq(address(aon).balance, 0, "Contract balance should be zero");
+        assertEq(
+            feeRecipient.balance,
+            feeRecipientInitialBalance,
+            "Fee recipient should not receive anything for failed contracts"
+        );
+        assertEq(
+            randomAddress.balance,
+            recipientInitialBalance + contractBalance,
+            "Recipient should receive all funds for failed contracts"
+        );
+    }
+
+    function test_SwipeFunds_WithUnclaimedContract_NoPlatformFees() public {
+        // Contributors meet the goal with no fees
+        vm.prank(contributor1);
+        aon.contribute{value: GOAL}(0, 0);
+
+        // Fast-forward past end time, claim window, and refund window (contract becomes unclaimed and swipeable)
+        vm.warp(aon.endTime() + aon.claimWindow() + aon.refundWindow() + 1 days);
+        assertTrue(aon.isUnclaimed(), "Contract should be unclaimed");
+
+        uint256 contractBalance = address(aon).balance;
+        uint256 feeRecipientInitialBalance = feeRecipient.balance;
+        uint256 recipientInitialBalance = randomAddress.balance;
+
+        vm.prank(factoryOwner);
+        aon.swipeFunds(payable(randomAddress));
+
+        assertEq(address(aon).balance, 0, "Contract balance should be zero");
+        assertEq(
+            feeRecipient.balance,
+            feeRecipientInitialBalance,
+            "Fee recipient should not receive anything when there are no platform fees"
+        );
+        assertEq(
+            randomAddress.balance,
+            recipientInitialBalance + contractBalance,
+            "Recipient should receive all funds when there are no platform fees"
+        );
+    }
+
     function test_RefundToSwapContract_Success() public {
         vm.prank(contributor1);
         aon.contribute{value: CONTRIBUTION_AMOUNT}(0, 0);
