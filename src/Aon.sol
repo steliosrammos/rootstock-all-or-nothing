@@ -215,22 +215,14 @@ contract Aon is Initializable, Nonces {
         return address(this).balance - totalCreatorFee - totalContributorFee;
     }
 
-    // When the state variable is public, everyone can query it. Why does this function exist?
-    /// @notice Returns true if the address is the creator of the AON campaign.
-    function isCreator(address _address) public view returns (bool) {
-        return _address == creator;
-    }
-
     /*
     * Derived State Functions
     */
     function isFinalized() internal view returns (bool) {
-        // Why is there 1 wei buffer here? Why is the claimOrRefundWindow multiplied by 2?
         // slither-disable-next-line timestamp
         return (address(this).balance == 0 && block.timestamp > (endTime + claimWindow + refundWindow));
     }
 
-    // These functions feel useless. Why is there a function to check for equality?
     function isCancelled() internal view returns (bool) {
         return status == Status.Cancelled;
     }
@@ -305,7 +297,7 @@ contract Aon is Initializable, Nonces {
     }
 
     function canClaim(address _address) public view returns (uint256) {
-        if (!isCreator(_address)) revert OnlyCreatorCanClaim();
+        if (_address != creator) revert OnlyCreatorCanClaim();
         isValidClaim();
 
         uint256 creatorAmount = claimableBalance();
@@ -313,7 +305,7 @@ contract Aon is Initializable, Nonces {
         return creatorAmount;
     }
 
-    function getNonce(address _address) private view returns (uint256) {
+    function getNonce(address _address) external view returns (uint256) {
         return nonces(_address);
     }
 
@@ -323,7 +315,7 @@ contract Aon is Initializable, Nonces {
         if (isFinalized()) revert CannotCancelFinalizedContract();
 
         bool isFactoryCall = msg.sender == factory.owner();
-        bool isCreatorCall = isCreator(msg.sender);
+        bool isCreatorCall = msg.sender == creator;
 
         if (!isFactoryCall && !isCreatorCall) revert OnlyCreatorOrFactoryOwnerCanCancel();
 
@@ -370,7 +362,6 @@ contract Aon is Initializable, Nonces {
     function contributeFor(address contributor, uint256 creatorFee, uint256 contributorFee) public payable {
         isValidContribution(msg.value, contributorFee);
 
-        // What about the creator fee? Why is it counted to the contribution?
         uint256 contributionAmount = msg.value - contributorFee;
         contributions[contributor] += contributionAmount;
         totalCreatorFee += creatorFee;
@@ -437,7 +428,8 @@ contract Aon is Initializable, Nonces {
         address claimAddress,
         address refundAddress,
         uint256 timelock,
-        uint256 processingFee
+        uint256 processingFee,
+        string calldata swapContractLockFunctionSignature
     ) external {
         if (block.timestamp > deadline) revert SignatureExpired();
         if (address(swapContract) == address(0)) revert InvalidSwapContract();
@@ -463,11 +455,11 @@ contract Aon is Initializable, Nonces {
             swapContract,
             refundAmount,
             processingFee,
-            Status.Claimed,
             preimageHash,
             claimAddress,
             refundAddress,
-            timelock
+            timelock,
+            swapContractLockFunctionSignature
         );
     }
 
@@ -501,7 +493,6 @@ contract Aon is Initializable, Nonces {
 
     function claim(uint256 processingFee) external {
         totalCreatorFee += processingFee;
-        // Why return the nonce as second value when you don't use it?
         uint256 creatorAmount = canClaim(msg.sender);
         status = Status.Claimed;
 
@@ -511,7 +502,6 @@ contract Aon is Initializable, Nonces {
         uint256 totalPlatformAmount = totalCreatorFee + totalContributorFee;
         if (totalPlatformAmount > 0) {
             // slither-disable-next-line low-level-calls
-            // Might be worthwhile to add a feeRecipient to the factory
             (bool success, bytes memory reason) = factory.owner().call{value: totalPlatformAmount}("");
             require(success, FailedToSendFeeRecipientAmount(reason));
         }
@@ -544,7 +534,8 @@ contract Aon is Initializable, Nonces {
         address claimAddress,
         address refundAddress,
         uint256 timelock,
-        uint256 processingFee
+        uint256 processingFee,
+        string calldata swapContractClaimFunctionSignature
     ) external {
         totalCreatorFee += processingFee;
 
@@ -566,11 +557,11 @@ contract Aon is Initializable, Nonces {
             swapContract,
             creatorAmount,
             totalCreatorFee + totalContributorFee,
-            Status.Claimed,
             preimageHash,
             claimAddress,
             refundAddress,
-            timelock
+            timelock,
+            swapContractClaimFunctionSignature
         );
     }
 
@@ -638,14 +629,12 @@ contract Aon is Initializable, Nonces {
         ISwapHTLC swapContract,
         uint256 amount,
         uint256 feeRecipientAmount,
-        Status statusToSet,
         bytes32 preimageHash,
         address claimAddress,
         address refundAddress,
-        uint256 timelock
+        uint256 timelock,
+        string calldata swapContractLockFunctionSignature
     ) private {
-        status = statusToSet;
-
         if (feeRecipientAmount > 0) {
             (bool success, bytes memory reason) = feeRecipient.call{value: feeRecipientAmount}("");
             require(success, FailedToSendFeeRecipientAmount(reason));
@@ -656,7 +645,7 @@ contract Aon is Initializable, Nonces {
             // slither-disable-next-line low-level-calls
             (bool success, bytes memory reason) = address(swapContract).call{value: amount}(
                 abi.encodeWithSignature(
-                    "lock(bytes32,address,address,uint256)", preimageHash, claimAddress, refundAddress, timelock
+                    swapContractLockFunctionSignature, preimageHash, claimAddress, refundAddress, timelock
                 )
             );
             require(success, FailedToSendFundsInClaim(reason));
