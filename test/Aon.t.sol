@@ -865,11 +865,14 @@ contract AonTest is Test {
             ISwapHTLC(swapContract),
             deadline,
             signature,
-            bytes32(0),
-            address(0x123),
-            address(0x456),
-            3600,
-            0
+            0,
+            Aon.SwapContractLockParams({
+                preimageHash: bytes32(0),
+                claimAddress: address(0x123),
+                refundAddress: address(0x456),
+                timelock: 3600,
+                functionSignature: "lock(bytes32,address,address,uint256)"
+            })
         );
 
         // Verify refund was successful
@@ -911,11 +914,14 @@ contract AonTest is Test {
             ISwapHTLC(swapContract),
             deadline,
             signature,
-            bytes32(0),
-            address(0x123),
-            address(0x456),
-            3600,
-            PROCESSING_FEE
+            PROCESSING_FEE,
+            Aon.SwapContractLockParams({
+                preimageHash: bytes32(0),
+                claimAddress: address(0x123),
+                refundAddress: address(0x456),
+                timelock: 3600,
+                functionSignature: "lock(bytes32,address,address,uint256)"
+            })
         );
 
         // Verify refund was successful
@@ -1009,11 +1015,14 @@ contract AonTest is Test {
             ISwapHTLC(swapContract),
             deadline,
             signature,
-            bytes32(0),
-            address(0x123),
-            address(0x456),
-            3600,
-            0
+            0,
+            Aon.SwapContractLockParams({
+                preimageHash: bytes32(0),
+                claimAddress: address(0x123),
+                refundAddress: address(0x456),
+                timelock: 3600,
+                functionSignature: "lock(bytes32,address,address,uint256)"
+            })
         );
     }
 
@@ -1060,11 +1069,14 @@ contract AonTest is Test {
             ISwapHTLC(swapContract),
             deadline,
             signature,
-            bytes32(0),
-            address(0x123),
-            address(0x456),
-            3600,
-            0
+            0,
+            Aon.SwapContractLockParams({
+                preimageHash: bytes32(0),
+                claimAddress: address(0x123),
+                refundAddress: address(0x456),
+                timelock: 3600,
+                functionSignature: "lock(bytes32,address,address,uint256)"
+            })
         );
     }
 
@@ -1106,7 +1118,17 @@ contract AonTest is Test {
         vm.expectEmit(true, true, true, true);
         emit Claimed(claimAmount, aon.totalCreatorFee(), aon.totalContributorFee());
         aon.claimToSwapContract(
-            ISwapHTLC(swapContract), deadline, signature, bytes32(0), address(0x456), address(0x789), 7200, 0
+            ISwapHTLC(swapContract),
+            deadline,
+            signature,
+            0,
+            Aon.SwapContractLockParams({
+                preimageHash: bytes32(0),
+                claimAddress: address(0x456),
+                refundAddress: address(0x789),
+                timelock: 7200,
+                functionSignature: "lock(bytes32,address,address,uint256)"
+            })
         );
 
         assertEq(swapContract.balance, initialSwapBalance + claimAmount, "Swap contract should receive creator amount");
@@ -1153,7 +1175,17 @@ contract AonTest is Test {
 
         vm.expectRevert(Aon.InvalidSignature.selector);
         aon.claimToSwapContract(
-            ISwapHTLC(swapContract), deadline, signature, bytes32(0), address(0x456), address(0x789), 7200, 0
+            ISwapHTLC(swapContract),
+            deadline,
+            signature,
+            0,
+            Aon.SwapContractLockParams({
+                preimageHash: bytes32(0),
+                claimAddress: address(0x456),
+                refundAddress: address(0x789),
+                timelock: 7200,
+                functionSignature: "lock(bytes32,address,address,uint256)"
+            })
         );
     }
 
@@ -1198,7 +1230,17 @@ contract AonTest is Test {
 
         vm.expectRevert(Aon.SignatureExpired.selector);
         aon.claimToSwapContract(
-            ISwapHTLC(swapContract), deadline, signature, bytes32(0), address(0x456), address(0x789), 7200, 0
+            ISwapHTLC(swapContract),
+            deadline,
+            signature,
+            0,
+            Aon.SwapContractLockParams({
+                preimageHash: bytes32(0),
+                claimAddress: address(0x456),
+                refundAddress: address(0x789),
+                timelock: 7200,
+                functionSignature: "lock(bytes32,address,address,uint256)"
+            })
         );
     }
 
@@ -1218,11 +1260,14 @@ contract AonTest is Test {
             ISwapHTLC(address(0)),
             deadline,
             signature,
-            bytes32(0),
-            address(0x123),
-            address(0x456),
-            3600,
-            0
+            0,
+            Aon.SwapContractLockParams({
+                preimageHash: bytes32(0),
+                claimAddress: address(0x123),
+                refundAddress: address(0x456),
+                timelock: 3600,
+                functionSignature: "lock(bytes32,address,address,uint256)"
+            })
         );
     }
 
@@ -1239,7 +1284,18 @@ contract AonTest is Test {
 
         vm.expectRevert(Aon.InvalidClaimAddress.selector);
         aon.refundToSwapContract(
-            contributor1, ISwapHTLC(swapContract), deadline, signature, bytes32(0), address(0), address(0x456), 3600, 0
+            contributor1,
+            ISwapHTLC(swapContract),
+            deadline,
+            signature,
+            0,
+            Aon.SwapContractLockParams({
+                preimageHash: bytes32(0),
+                claimAddress: address(0),
+                refundAddress: address(0x456),
+                timelock: 3600,
+                functionSignature: "lock(bytes32,address,address,uint256)"
+            })
         );
     }
 
@@ -1256,7 +1312,18 @@ contract AonTest is Test {
 
         vm.expectRevert(Aon.InvalidRefundAddress.selector);
         aon.refundToSwapContract(
-            contributor1, ISwapHTLC(swapContract), deadline, signature, bytes32(0), address(0x123), address(0), 3600, 0
+            contributor1,
+            ISwapHTLC(swapContract),
+            deadline,
+            signature,
+            0,
+            Aon.SwapContractLockParams({
+                preimageHash: bytes32(0),
+                claimAddress: address(0x123),
+                refundAddress: address(0),
+                timelock: 3600,
+                functionSignature: "lock(bytes32,address,address,uint256)"
+            })
         );
     }
 
@@ -1272,7 +1339,17 @@ contract AonTest is Test {
 
         vm.expectRevert(Aon.InvalidSwapContract.selector);
         aon.claimToSwapContract(
-            ISwapHTLC(address(0)), deadline, signature, bytes32(0), address(0x456), address(0x789), 7200, 0
+            ISwapHTLC(address(0)),
+            deadline,
+            signature,
+            0,
+            Aon.SwapContractLockParams({
+                preimageHash: bytes32(0),
+                claimAddress: address(0x456),
+                refundAddress: address(0x789),
+                timelock: 7200,
+                functionSignature: "lock(bytes32,address,address,uint256)"
+            })
         );
     }
 
@@ -1289,7 +1366,17 @@ contract AonTest is Test {
 
         vm.expectRevert(Aon.InvalidClaimAddress.selector);
         aon.claimToSwapContract(
-            ISwapHTLC(swapContract), deadline, signature, bytes32(0), address(0), address(0x789), 7200, 0
+            ISwapHTLC(swapContract),
+            deadline,
+            signature,
+            0,
+            Aon.SwapContractLockParams({
+                preimageHash: bytes32(0),
+                claimAddress: address(0),
+                refundAddress: address(0x789),
+                timelock: 7200,
+                functionSignature: "lock(bytes32,address,address,uint256)"
+            })
         );
     }
 
@@ -1306,7 +1393,17 @@ contract AonTest is Test {
 
         vm.expectRevert(Aon.InvalidRefundAddress.selector);
         aon.claimToSwapContract(
-            ISwapHTLC(swapContract), deadline, signature, bytes32(0), address(0x456), address(0), 7200, 0
+            ISwapHTLC(swapContract),
+            deadline,
+            signature,
+            0,
+            Aon.SwapContractLockParams({
+                preimageHash: bytes32(0),
+                claimAddress: address(0x456),
+                refundAddress: address(0),
+                timelock: 7200,
+                functionSignature: "lock(bytes32,address,address,uint256)"
+            })
         );
     }
 }

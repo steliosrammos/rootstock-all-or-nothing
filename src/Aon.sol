@@ -106,6 +106,15 @@ contract Aon is Initializable, Nonces {
     error InvalidClaimAddress();
     error InvalidRefundAddress();
 
+    // Structs
+    struct SwapContractLockParams {
+        bytes32 preimageHash;
+        address claimAddress;
+        address refundAddress;
+        uint256 timelock;
+        string functionSignature;
+    }
+
     // Status enum
     enum Status {
         Active, // 0 - Default active state
@@ -413,28 +422,21 @@ contract Aon is Initializable, Nonces {
      * @param deadline    Timestamp after which the signature is no longer
      *                    valid.
      * @param signature   The EIP-712 signature bytes.
-     * @param preimageHash The preimage hash for the lock.
-     * @param claimAddress The address that can claim the locked funds.
-     * @param refundAddress The address that can refund the locked funds.
-     * @param timelock     The timelock value for the lock.
      * @param processingFee The fee for the processing of the refund.
+     * @param lockParams  Struct containing swap contract lock parameters.
      */
     function refundToSwapContract(
         address contributor,
         ISwapHTLC swapContract,
         uint256 deadline,
         bytes calldata signature,
-        bytes32 preimageHash,
-        address claimAddress,
-        address refundAddress,
-        uint256 timelock,
         uint256 processingFee,
-        string calldata swapContractLockFunctionSignature
+        SwapContractLockParams calldata lockParams
     ) external {
         if (block.timestamp > deadline) revert SignatureExpired();
         if (address(swapContract) == address(0)) revert InvalidSwapContract();
-        if (claimAddress == address(0)) revert InvalidClaimAddress();
-        if (refundAddress == address(0)) revert InvalidRefundAddress();
+        if (lockParams.claimAddress == address(0)) revert InvalidClaimAddress();
+        if (lockParams.refundAddress == address(0)) revert InvalidRefundAddress();
 
         (uint256 refundAmount, uint256 nonce) = isValidRefund(contributor, processingFee);
 
@@ -442,7 +444,7 @@ contract Aon is Initializable, Nonces {
         // Verify EIP-712 signature
         // -----------------------------------------------------------------
         verifyEIP712SignatureForRefund(
-            contributor, swapContract, deadline, signature, preimageHash, processingFee, refundAmount, nonce
+            contributor, swapContract, deadline, signature, lockParams.preimageHash, processingFee, refundAmount, nonce
         );
 
         // totalContributorFee += processingFee;
@@ -451,16 +453,7 @@ contract Aon is Initializable, Nonces {
         contributions[contributor] = 0;
         emit ContributionRefunded(contributor, refundAmount);
 
-        sendFundsToSwapContract(
-            swapContract,
-            refundAmount,
-            processingFee,
-            preimageHash,
-            claimAddress,
-            refundAddress,
-            timelock,
-            swapContractLockFunctionSignature
-        );
+        sendFundsToSwapContract(swapContract, refundAmount, processingFee, lockParams);
     }
 
     function verifyEIP712SignatureForRefund(
@@ -522,47 +515,33 @@ contract Aon is Initializable, Nonces {
      * @param deadline    Timestamp after which the signature is no longer
      *                    valid.
      * @param signature   The EIP-712 signature bytes.
-     * @param preimageHash The preimage hash for the lock.
-     * @param claimAddress The address that can claim the locked funds.
-     * @param timelock     The timelock value for the lock.
+     * @param processingFee The fee for the processing of the claim.
+     * @param lockParams  Struct containing swap contract lock parameters.
      */
     function claimToSwapContract(
         ISwapHTLC swapContract,
         uint256 deadline,
         bytes calldata signature,
-        bytes32 preimageHash,
-        address claimAddress,
-        address refundAddress,
-        uint256 timelock,
         uint256 processingFee,
-        string calldata swapContractClaimFunctionSignature
+        SwapContractLockParams calldata lockParams
     ) external {
         totalCreatorFee += processingFee;
 
         if (block.timestamp > deadline) revert SignatureExpired();
         if (address(swapContract) == address(0)) revert InvalidSwapContract();
-        if (claimAddress == address(0)) revert InvalidClaimAddress();
-        if (refundAddress == address(0)) revert InvalidRefundAddress();
+        if (lockParams.claimAddress == address(0)) revert InvalidClaimAddress();
+        if (lockParams.refundAddress == address(0)) revert InvalidRefundAddress();
 
         isValidClaim();
         uint256 creatorAmount = claimableBalance();
 
         // Verify signature
-        verifyClaimSignature(swapContract, creatorAmount, deadline, signature, preimageHash, processingFee);
+        verifyClaimSignature(swapContract, creatorAmount, deadline, signature, lockParams.preimageHash, processingFee);
 
         status = Status.Claimed;
         emit Claimed(creatorAmount, totalCreatorFee, totalContributorFee);
 
-        sendFundsToSwapContract(
-            swapContract,
-            creatorAmount,
-            totalCreatorFee + totalContributorFee,
-            preimageHash,
-            claimAddress,
-            refundAddress,
-            timelock,
-            swapContractClaimFunctionSignature
-        );
+        sendFundsToSwapContract(swapContract, creatorAmount, totalCreatorFee + totalContributorFee, lockParams);
     }
 
     function cancel() external {
@@ -629,11 +608,7 @@ contract Aon is Initializable, Nonces {
         ISwapHTLC swapContract,
         uint256 amount,
         uint256 feeRecipientAmount,
-        bytes32 preimageHash,
-        address claimAddress,
-        address refundAddress,
-        uint256 timelock,
-        string calldata swapContractLockFunctionSignature
+        SwapContractLockParams calldata lockParams
     ) private {
         if (feeRecipientAmount > 0) {
             (bool success, bytes memory reason) = feeRecipient.call{value: feeRecipientAmount}("");
@@ -645,7 +620,11 @@ contract Aon is Initializable, Nonces {
             // slither-disable-next-line low-level-calls
             (bool success, bytes memory reason) = address(swapContract).call{value: amount}(
                 abi.encodeWithSignature(
-                    swapContractLockFunctionSignature, preimageHash, claimAddress, refundAddress, timelock
+                    lockParams.functionSignature,
+                    lockParams.preimageHash,
+                    lockParams.claimAddress,
+                    lockParams.refundAddress,
+                    lockParams.timelock
                 )
             );
             require(success, FailedToSendFundsInClaim(reason));
