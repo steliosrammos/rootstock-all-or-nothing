@@ -23,13 +23,23 @@ contract Factory is Ownable {
         implementation = _implementation;
     }
 
+    /**
+     * @notice Deploys a new Aon contract.
+     * @param creator The crowdfunding campaign creator.
+     * @param goalInEther The crowdfunding goal in wei.
+     * @param durationInSeconds Campaign duration in seconds.
+     * @param goalReachedStrategy Address of the goal reached strategy contract.
+     * @param claimWindow The time period (in seconds) after campaign end during which the creator can claim.
+     * @param refundWindow The time period (in seconds) during which contributors can request refunds after the campaign ends or after the claim window.
+     * @param feeRecipient The address that will receive platform/processing fees (creator and contributor fees).
+     */
     function create(
         address payable creator,
         uint256 goalInEther,
-        uint256 durationInSeconds,
+        uint32 durationInSeconds,
         address goalReachedStrategy,
-        uint256 claimWindow,
-        uint256 refundWindow,
+        uint32 claimWindow,
+        uint32 refundWindow,
         address payable feeRecipient
     ) external {
         AonProxy proxy = new AonProxy(implementation);

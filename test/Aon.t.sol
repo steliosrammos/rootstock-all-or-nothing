@@ -22,7 +22,7 @@ contract AonTest is Test {
     address payable private feeRecipient = payable(makeAddr("feeRecipient"));
 
     uint256 private constant GOAL = 10 ether;
-    uint256 private constant DURATION = 30 days;
+    uint32 private constant DURATION = 30 days;
     uint256 private constant PLATFORM_FEE = 250; // 2.5% in basis points
     uint256 private constant CONTRIBUTION_AMOUNT = 1 ether;
     uint256 private constant PROCESSING_FEE = 0.1 ether;
@@ -57,9 +57,7 @@ contract AonTest is Test {
 
         // Initialize contract via proxy
         vm.prank(factoryOwner);
-        aon.initialize(
-            creator, GOAL, block.timestamp + DURATION, address(goalReachedStrategy), 30 days, 30 days, feeRecipient
-        );
+        aon.initialize(creator, GOAL, DURATION, address(goalReachedStrategy), 30 days, 30 days, feeRecipient);
 
         vm.deal(contributor1, 100 ether);
         vm.deal(contributor2, 100 ether);
@@ -269,7 +267,7 @@ contract AonTest is Test {
         uint256 creatorAmount = aon.claimableBalance() - processingFee;
         uint256 totalFee = aon.totalCreatorFee() + aon.totalContributorFee() + processingFee;
         uint256 creatorInitialBalance = creator.balance;
-        uint256 factoryInitialBalance = factoryOwner.balance;
+        uint256 feeRecipientInitialBalance = feeRecipient.balance;
 
         vm.startPrank(creator);
         vm.expectEmit(true, true, false, true);
@@ -284,7 +282,9 @@ contract AonTest is Test {
             "Creator should receive the funds (excluding contributor fees)"
         );
         assertEq(
-            factoryOwner.balance, factoryInitialBalance + totalFee, "Factory should receive fees and contributor fees"
+            feeRecipient.balance,
+            feeRecipientInitialBalance + totalFee,
+            "Fee recipient should receive fees and contributor fees"
         );
     }
 
@@ -306,7 +306,7 @@ contract AonTest is Test {
         uint256 creatorAmount = aon.claimableBalance() - processingFee;
         uint256 totalFee = aon.totalCreatorFee() + aon.totalContributorFee() + processingFee;
         uint256 creatorInitialBalance = creator.balance;
-        uint256 factoryInitialBalance = factoryOwner.balance;
+        uint256 feeRecipientInitialBalance = feeRecipient.balance;
 
         vm.startPrank(creator);
         vm.expectEmit(true, true, false, true);
@@ -317,9 +317,9 @@ contract AonTest is Test {
         assertEq(address(aon).balance, 0, "Contract balance should be zero after claim");
         assertEq(creator.balance, creatorInitialBalance + creatorAmount, "Creator should receive the funds");
         assertEq(
-            factoryOwner.balance,
-            factoryInitialBalance + totalFee,
-            "Factory should receive the fee including processing fee"
+            feeRecipient.balance,
+            feeRecipientInitialBalance + totalFee,
+            "Fee recipient should receive the fee including processing fee"
         );
         assertEq(aon.totalCreatorFee(), processingFee, "Total creator fee should equal processing fee");
     }

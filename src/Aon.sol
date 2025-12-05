@@ -117,12 +117,13 @@ contract Aon is Initializable, Nonces {
 
     // Status enum
     enum Status {
-        Active, // 0 - Default active state
-        Cancelled, // 1 - Campaign cancelled
+        Active, // 0 - Campaign running, accepting contributions
+        Cancelled, // 1 - Campaign cancelled by creator/admin
         Claimed, // 2 - Funds claimed by creator
-        Successful, // 3 - Goal reached and claim window expired
+        Successful, // 3 - Goal reached, within claim window, can be claimed
         Failed, // 4 - Time expired without reaching goal
-        Finalized // 5 - All operations complete, contract can be cleaned up
+        Unclaimed, // 5 - Goal reached but creator didn't claim in time
+        Finalized // 6 - Contract empty, all windows expired, no actions possible
     }
 
     // ---------------------------------------------------------------------
@@ -153,8 +154,8 @@ contract Aon is Initializable, Nonces {
     uint256 public totalCreatorFee;
 
     uint256 public totalContributorFee;
-    uint256 public claimWindow;
-    uint256 public refundWindow;
+    uint32 public claimWindow;
+    uint32 public refundWindow;
 
     /*
     * The status is only updated to Active, Cancelled or Claimed, other statuses are derived from contract state
@@ -173,10 +174,10 @@ contract Aon is Initializable, Nonces {
     function initialize(
         address payable _creator,
         uint256 _goal,
-        uint256 _durationInSeconds,
+        uint32 _durationInSeconds,
         address _goalReachedStrategy,
-        uint256 _claimWindow,
-        uint256 _refundWindow,
+        uint32 _claimWindow,
+        uint32 _refundWindow,
         address payable _feeRecipient
     ) public initializer {
         if (_goal == 0 ether) revert InvalidGoal();
@@ -215,8 +216,16 @@ contract Aon is Initializable, Nonces {
         return _DOMAIN_SEPARATOR;
     }
 
-    function goalBalance() external view returns (uint256) {
+    function goalBalance() public view returns (uint256) {
         return address(this).balance - totalContributorFee;
+    }
+
+    /// @notice Returns the goal balance and target goal in a single call.
+    /// @dev Used by goal reached strategies to minimize external calls.
+    /// @return currentBalance The current balance counting towards the goal.
+    /// @return targetGoal The target goal amount.
+    function getGoalInfo() external view returns (uint256 currentBalance, uint256 targetGoal) {
+        return (goalBalance(), goal);
     }
 
     /// @notice Returns the amount of funds available for the creator to claim.
@@ -242,32 +251,47 @@ contract Aon is Initializable, Nonces {
 
     // slither-disable-next-line timestamp
     function isUnclaimed() public view returns (bool) {
+        return _isUnclaimed(goalReachedStrategy.isGoalReached());
+    }
+
+    /// @dev Internal version that accepts cached goalReached value to avoid redundant external calls
+    // slither-disable-next-line timestamp
+    function _isUnclaimed(bool goalReached) internal view returns (bool) {
         // slither-disable-next-line timestamp
-        return (block.timestamp > endTime + claimWindow && goalReachedStrategy.isGoalReached());
+        return (block.timestamp > endTime + claimWindow && goalReached);
     }
 
     // slither-disable-next-line timestamp
     function isFailed() internal view returns (bool) {
-        // slither-disable-next-line timestamp
-        return (block.timestamp > endTime && !goalReachedStrategy.isGoalReached());
+        return _isFailed(goalReachedStrategy.isGoalReached());
     }
 
-    function isSuccessful() internal view returns (bool) {
-        return (!isCancelled() && goalReachedStrategy.isGoalReached());
+    /// @dev Internal version that accepts cached goalReached value to avoid redundant external calls
+    // slither-disable-next-line timestamp
+    function _isFailed(bool goalReached) internal view returns (bool) {
+        // slither-disable-next-line timestamp
+        return (block.timestamp > endTime && !goalReached);
     }
 
     /// @notice Returns the derived status of the contract. Meant for external use (eg: showing status in UIs).
     function getStatus() external view returns (Status) {
-        if (status == Status.Active) {
-            if (isFailed()) return Status.Failed;
-            if (isSuccessful()) return Status.Successful;
-            return Status.Active;
-        }
+        // Finalized: contract empty and all windows expired - no actions possible
         if (isFinalized()) return Status.Finalized;
-        if (isClaimed()) return Status.Claimed;
-        if (isCancelled()) return Status.Cancelled;
 
-        return status;
+        // Check stored terminal states
+        if (isCancelled()) return Status.Cancelled;
+        if (isClaimed()) return Status.Claimed;
+
+        // Active - derive actual state from goal and time
+        bool goalReached = goalReachedStrategy.isGoalReached();
+
+        if (_isFailed(goalReached)) return Status.Failed;
+
+        if (goalReached) {
+            return _isUnclaimed(goalReached) ? Status.Unclaimed : Status.Successful;
+        }
+
+        return Status.Active;
     }
 
     /*
@@ -282,15 +306,17 @@ contract Aon is Initializable, Nonces {
 
         if (isClaimed()) revert CannotRefundClaimedContract();
 
+        // Cache the external call result to avoid multiple expensive calls
+        bool goalReached = goalReachedStrategy.isGoalReached();
         uint256 balance = address(this).balance;
 
-        if (goalReachedStrategy.isGoalReached() && !isUnclaimed() && balance - refundAmount < goal) {
+        if (goalReached && !_isUnclaimed(goalReached) && balance - refundAmount < goal) {
             revert InsufficientBalanceForRefund(balance, refundAmount, goal);
         }
 
         uint256 nonce = nonces(contributor);
 
-        if (isCancelled() || isFailed() || isUnclaimed() || !goalReachedStrategy.isGoalReached()) {
+        if (isCancelled() || _isFailed(goalReached) || _isUnclaimed(goalReached) || !goalReached) {
             return (refundAmount, nonce);
         }
 
@@ -300,9 +326,13 @@ contract Aon is Initializable, Nonces {
     function isValidClaim() private view {
         if (isCancelled()) revert CannotClaimCancelledContract();
         if (isClaimed()) revert AlreadyClaimed();
-        if (isFailed()) revert CannotClaimFailedContract();
-        if (isUnclaimed()) revert CannotClaimUnclaimedContract();
-        if (!goalReachedStrategy.isGoalReached()) revert GoalNotReached();
+
+        // Cache the external call result to avoid multiple expensive calls
+        bool goalReached = goalReachedStrategy.isGoalReached();
+
+        if (_isFailed(goalReached)) revert CannotClaimFailedContract();
+        if (_isUnclaimed(goalReached)) revert CannotClaimUnclaimedContract();
+        if (!goalReached) revert GoalNotReached();
     }
 
     function canClaim(address _address) public view returns (uint256) {
@@ -341,7 +371,7 @@ contract Aon is Initializable, Nonces {
         if (_contributorFee >= _amount) revert ContributorFeeCannotExceedContributionAmount();
     }
 
-    function isValidSwipe() public view returns (bool) {
+    function isValidSwipe() public view {
         if (msg.sender != factory.owner()) revert OnlyFactoryCanSwipeFunds();
 
         // slither-disable-next-line timestamp
@@ -350,8 +380,6 @@ contract Aon is Initializable, Nonces {
         }
 
         if (address(this).balance == 0) revert NoFundsToSwipe();
-
-        return true;
     }
 
     /*
@@ -495,7 +523,7 @@ contract Aon is Initializable, Nonces {
         uint256 totalPlatformAmount = totalCreatorFee + totalContributorFee;
         if (totalPlatformAmount > 0) {
             // slither-disable-next-line low-level-calls
-            (bool success, bytes memory reason) = factory.owner().call{value: totalPlatformAmount}("");
+            (bool success, bytes memory reason) = feeRecipient.call{value: totalPlatformAmount}("");
             require(success, FailedToSendFeeRecipientAmount(reason));
         }
 
@@ -557,7 +585,7 @@ contract Aon is Initializable, Nonces {
         uint256 contractBalance = address(this).balance;
 
         // If the contract is unclaimed, send the platform fee and the claimable amount to the fee recipient
-        if (this.isUnclaimed()) {
+        if (isUnclaimed()) {
             uint256 claimable = claimableBalance();
             uint256 platformAmount = contractBalance - claimable;
 
