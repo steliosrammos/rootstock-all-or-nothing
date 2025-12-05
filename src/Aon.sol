@@ -297,30 +297,28 @@ contract Aon is Initializable, Nonces {
     /*
     * Validation Functions
     */
-    function isValidRefund(address contributor, uint256 processingFee) public view returns (uint256, uint256) {
+    function isValidRefund(address contributor, uint256 processingFee) public view returns (uint256) {
+        if (isClaimed()) revert CannotRefundClaimedContract();
+
         uint256 refundAmount = contributions[contributor];
         if (refundAmount <= 0) revert CannotRefundZeroContribution();
         if (processingFee > refundAmount) revert ProcessingFeeHigherThanRefundAmount(refundAmount, processingFee);
 
         refundAmount -= processingFee;
 
-        if (isClaimed()) revert CannotRefundClaimedContract();
-
         // Cache the external call result to avoid multiple expensive calls
         bool goalReached = goalReachedStrategy.isGoalReached();
-        uint256 balance = address(this).balance;
+        uint256 _goalBalance = goalBalance();
 
-        if (goalReached && !_isUnclaimed(goalReached) && balance - refundAmount < goal) {
-            revert InsufficientBalanceForRefund(balance, refundAmount, goal);
+        if (goalReached && _goalBalance - refundAmount < goal && !_isUnclaimed(goalReached)) {
+            revert InsufficientBalanceForRefund(_goalBalance, refundAmount, goal);
         }
-
-        uint256 nonce = nonces(contributor);
 
         if (isCancelled() || _isFailed(goalReached) || _isUnclaimed(goalReached) || !goalReached) {
-            return (refundAmount, nonce);
+            return refundAmount;
         }
 
-        return (0, nonce);
+        return 0;
     }
 
     function isValidClaim() private view {
@@ -418,7 +416,7 @@ contract Aon is Initializable, Nonces {
      * @notice Refund the sender's contributions. Used to refund contributions directly on Rootstock.
      */
     function refund(uint256 processingFee) external {
-        (uint256 refundAmount,) = isValidRefund(msg.sender, processingFee);
+        uint256 refundAmount = isValidRefund(msg.sender, processingFee);
 
         // totalContributorFee += processingFee;
 
@@ -466,18 +464,14 @@ contract Aon is Initializable, Nonces {
         if (lockParams.claimAddress == address(0)) revert InvalidClaimAddress();
         if (lockParams.refundAddress == address(0)) revert InvalidRefundAddress();
 
-        (uint256 refundAmount, uint256 nonce) = isValidRefund(contributor, processingFee);
+        uint256 refundAmount = isValidRefund(contributor, processingFee);
 
-        // -----------------------------------------------------------------
-        // Verify EIP-712 signature
-        // -----------------------------------------------------------------
         verifyEIP712SignatureForRefund(
-            contributor, swapContract, deadline, signature, lockParams.preimageHash, processingFee, refundAmount, nonce
+            contributor, swapContract, deadline, signature, lockParams.preimageHash, processingFee, refundAmount
         );
 
         // totalContributorFee += processingFee;
 
-        _useNonce(contributor);
         contributions[contributor] = 0;
         emit ContributionRefunded(contributor, refundAmount);
 
@@ -491,9 +485,9 @@ contract Aon is Initializable, Nonces {
         bytes calldata signature,
         bytes32 preimageHash,
         uint256 processingFee,
-        uint256 refundAmount,
-        uint256 nonce
-    ) private view {
+        uint256 refundAmount
+    ) private {
+        uint256 nonce = nonces(contributor);
         bytes32 structHash = keccak256(
             abi.encode(
                 _REFUND_TO_SWAP_CONTRACT_TYPEHASH,
@@ -510,6 +504,7 @@ contract Aon is Initializable, Nonces {
         address signer = ECDSA.recover(digest, signature);
 
         require(signer == contributor, InvalidSignature());
+        _useNonce(contributor);
     }
 
     function claim(uint256 processingFee) external {
@@ -563,8 +558,9 @@ contract Aon is Initializable, Nonces {
         isValidClaim();
         uint256 creatorAmount = claimableBalance();
 
-        // Verify signature
-        verifyClaimSignature(swapContract, creatorAmount, deadline, signature, lockParams.preimageHash, processingFee);
+        verifyEIP712SignatureForClaim(
+            swapContract, creatorAmount, deadline, signature, lockParams.preimageHash, processingFee
+        );
 
         status = Status.Claimed;
         emit Claimed(creatorAmount, totalCreatorFee, totalContributorFee);
@@ -600,10 +596,7 @@ contract Aon is Initializable, Nonces {
         require(sent, FailedToSwipeFunds(reason));
     }
 
-    /*
-    * Private Functions
-    */
-    function verifyClaimSignature(
+    function verifyEIP712SignatureForClaim(
         ISwapHTLC swapContract,
         uint256 _claimableBalance,
         uint256 deadline,
