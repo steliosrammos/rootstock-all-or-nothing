@@ -23,6 +23,7 @@ abstract contract AonTestBase is Test {
     address public factoryOwner;
     address public randomAddress;
     address payable public feeRecipient;
+    address payable public swipeRecipient;
 
     // Constants
     uint256 public constant GOAL = 10 ether;
@@ -52,6 +53,7 @@ abstract contract AonTestBase is Test {
         factoryOwner = address(this);
         randomAddress = makeAddr("random");
         feeRecipient = payable(makeAddr("feeRecipient"));
+        swipeRecipient = payable(makeAddr("swipeRecipient"));
 
         goalReachedStrategy = new AonGoalReachedNative();
 
@@ -62,7 +64,7 @@ abstract contract AonTestBase is Test {
 
         // Initialize contract via proxy
         vm.prank(factoryOwner);
-        aon.initialize(creator, GOAL, DURATION, address(goalReachedStrategy), 30 days, 30 days, feeRecipient);
+        aon.initialize(creator, GOAL, DURATION, address(goalReachedStrategy), 30 days, 30 days, feeRecipient, swipeRecipient);
 
         vm.deal(contributor1, 100 ether);
         vm.deal(contributor2, 100 ether);
@@ -182,8 +184,8 @@ contract MaliciousFactory is IOwnable {
             aon = _aon;
         }
 
-        function swipe(address payable recipient) external {
-            aon.swipeFunds(recipient);
+        function swipe() external {
+            aon.swipeFunds();
         }
 
         receive() external payable {

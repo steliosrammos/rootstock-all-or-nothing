@@ -112,7 +112,7 @@ contract AonGetStatusTest is AonTestBase {
 
         // Swipe funds to empty the contract
         vm.prank(factoryOwner);
-        aon.swipeFunds(feeRecipient);
+        aon.swipeFunds();
 
         assertEq(address(aon).balance, 0, "Contract should be empty");
         assertEq(uint256(aon.getStatus()), uint256(Aon.Status.Finalized), "Should be Finalized");

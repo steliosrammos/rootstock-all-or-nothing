@@ -40,13 +40,21 @@ contract Factory is Ownable {
         address goalReachedStrategy,
         uint32 claimWindow,
         uint32 refundWindow,
-        address payable feeRecipient
+        address payable feeRecipient,
+        address payable swipeRecipient
     ) external {
         AonProxy proxy = new AonProxy(implementation);
         emit AonCreated(address(proxy));
         Aon(address(proxy))
             .initialize(
-                creator, goalInEther, durationInSeconds, goalReachedStrategy, claimWindow, refundWindow, feeRecipient
+                creator,
+                goalInEther,
+                durationInSeconds,
+                goalReachedStrategy,
+                claimWindow,
+                refundWindow,
+                feeRecipient,
+                swipeRecipient
             );
     }
 }

@@ -16,7 +16,8 @@ contract AonRefundTest is AonTestBase {
         AonProxy proxy = new AonProxy(address(implementation));
         Aon aonForTest = Aon(address(proxy));
         vm.prank(address(factory)); // Pretend the factory is deploying this Aon instance
-        aonForTest.initialize(creator, GOAL, DURATION, address(goalReachedStrategy), 30 days, 30 days, feeRecipient);
+        // Set swipeRecipient to attacker address so funds go there and trigger reentrancy
+        aonForTest.initialize(creator, GOAL, DURATION, address(goalReachedStrategy), 30 days, 30 days, feeRecipient, payable(address(attacker)));
 
         // 4. Link the attacker contract to the new Aon instance
         attacker.setAon(aonForTest);
@@ -32,7 +33,7 @@ contract AonRefundTest is AonTestBase {
         bytes memory innerError = abi.encodeWithSelector(Aon.CannotCancelFinalizedContract.selector);
         vm.expectRevert(abi.encodeWithSelector(Aon.FailedToSwipeFunds.selector, innerError));
         vm.prank(address(attacker));
-        attacker.swipe(payable(address(attacker)));
+        attacker.swipe();
 
         // 7. Check that the attack failed (which is good) - contract should not be cancelled
         assertEq(
@@ -51,24 +52,50 @@ contract AonRefundTest is AonTestBase {
 
         uint256 contractBalance = address(aon).balance;
         uint256 feeRecipientInitialBalance = feeRecipient.balance;
+        uint256 swipeRecipientInitialBalance = swipeRecipient.balance;
         uint256 platformAmount = aon.totalContributorFee(); // 0 in this test
         uint256 recipientAmount = contractBalance - platformAmount;
 
         vm.prank(factoryOwner);
         vm.expectEmit(true, false, false, true);
-        emit FundsSwiped(feeRecipient, platformAmount, recipientAmount);
-        aon.swipeFunds(feeRecipient);
+        emit FundsSwiped(swipeRecipient, platformAmount, recipientAmount);
+        aon.swipeFunds();
 
         assertEq(address(aon).balance, 0, "Contract balance should be zero");
         assertEq(
-            feeRecipient.balance, feeRecipientInitialBalance + contractBalance, "Fee recipient should receive funds"
+            feeRecipient.balance, feeRecipientInitialBalance + platformAmount, "Fee recipient should receive platform fees"
+        );
+        assertEq(
+            swipeRecipient.balance, swipeRecipientInitialBalance + recipientAmount, "Swipe recipient should receive funds"
         );
     }
 
-    function test_SwipeFunds_FailsIfNotFactoryOwner() public {
+    function test_SwipeFunds_CanBeCalledByAnyone() public {
+        vm.prank(contributor1);
+        aon.contribute{value: 1 ether}(0, 0);
+
+        // Fast-forward past all windows
+        vm.warp(aon.endTime() + aon.claimWindow() + aon.refundWindow() + 1 days);
+
+        uint256 contractBalance = address(aon).balance;
+        uint256 feeRecipientInitialBalance = feeRecipient.balance;
+        uint256 swipeRecipientInitialBalance = swipeRecipient.balance;
+        uint256 platformAmount = aon.totalContributorFee(); // 0 in this test
+        uint256 recipientAmount = contractBalance - platformAmount;
+
+        // Non-factory owner can swipe funds
         vm.prank(randomAddress);
-        vm.expectRevert(Aon.OnlyFactoryCanSwipeFunds.selector);
-        aon.swipeFunds(feeRecipient);
+        vm.expectEmit(true, false, false, true);
+        emit FundsSwiped(swipeRecipient, platformAmount, recipientAmount);
+        aon.swipeFunds();
+
+        assertEq(address(aon).balance, 0, "Contract balance should be zero");
+        assertEq(
+            feeRecipient.balance, feeRecipientInitialBalance + platformAmount, "Fee recipient should receive platform fees"
+        );
+        assertEq(
+            swipeRecipient.balance, swipeRecipientInitialBalance + recipientAmount, "Swipe recipient should receive funds"
+        );
     }
 
     function test_SwipeFunds_FailsIfWindowNotOver() public {
@@ -78,7 +105,7 @@ contract AonRefundTest is AonTestBase {
 
         vm.prank(factoryOwner);
         vm.expectRevert(Aon.CannotSwipeFundsBeforeEndOfClaimOrRefundWindow.selector);
-        aon.swipeFunds(feeRecipient);
+        aon.swipeFunds();
     }
 
     function test_SwipeFunds_FailsIfNoFunds() public {
@@ -87,7 +114,7 @@ contract AonRefundTest is AonTestBase {
 
         vm.prank(factoryOwner);
         vm.expectRevert(Aon.NoFundsToSwipe.selector);
-        aon.swipeFunds(feeRecipient);
+        aon.swipeFunds();
     }
 
     function test_SwipeFunds_WithUnclaimedContract_SendsPlatformFeesToFeeRecipient() public {
@@ -105,12 +132,12 @@ contract AonRefundTest is AonTestBase {
             aon.isUnclaimed() ? aon.totalCreatorFee() + aon.totalContributorFee() : aon.totalContributorFee();
         uint256 recipientAmount = contractBalance - platformAmount;
         uint256 feeRecipientInitialBalance = feeRecipient.balance;
-        uint256 recipientInitialBalance = randomAddress.balance;
+        uint256 recipientInitialBalance = swipeRecipient.balance;
 
         vm.prank(factoryOwner);
         vm.expectEmit(true, false, false, true);
-        emit FundsSwiped(randomAddress, platformAmount, recipientAmount);
-        aon.swipeFunds(payable(randomAddress));
+        emit FundsSwiped(swipeRecipient, platformAmount, recipientAmount);
+        aon.swipeFunds();
 
         assertEq(address(aon).balance, 0, "Contract balance should be zero");
         assertEq(
@@ -119,7 +146,7 @@ contract AonRefundTest is AonTestBase {
             "Fee recipient should receive platform fees"
         );
         assertEq(
-            randomAddress.balance,
+            swipeRecipient.balance,
             recipientInitialBalance + claimableAmount,
             "Recipient should receive claimable amount"
         );
@@ -139,10 +166,10 @@ contract AonRefundTest is AonTestBase {
         uint256 claimableAmount = aon.claimableBalance();
         uint256 platformAmount = contractBalance - claimableAmount;
         uint256 feeRecipientInitialBalance = feeRecipient.balance;
-        uint256 recipientInitialBalance = randomAddress.balance;
+        uint256 recipientInitialBalance = swipeRecipient.balance;
 
         vm.prank(factoryOwner);
-        aon.swipeFunds(payable(randomAddress));
+        aon.swipeFunds();
 
         assertEq(address(aon).balance, 0, "Contract balance should be zero");
         assertEq(
@@ -151,7 +178,7 @@ contract AonRefundTest is AonTestBase {
             "Fee recipient should receive platform fees including contributor fees"
         );
         assertEq(
-            randomAddress.balance,
+            swipeRecipient.balance,
             recipientInitialBalance + claimableAmount,
             "Recipient should receive claimable amount"
         );
@@ -172,12 +199,12 @@ contract AonRefundTest is AonTestBase {
             aon.isUnclaimed() ? aon.totalCreatorFee() + aon.totalContributorFee() : aon.totalContributorFee();
         uint256 recipientAmount = contractBalance - platformAmount;
         uint256 feeRecipientInitialBalance = feeRecipient.balance;
-        uint256 recipientInitialBalance = randomAddress.balance;
+        uint256 recipientInitialBalance = swipeRecipient.balance;
 
         vm.prank(factoryOwner);
         vm.expectEmit(true, false, false, true);
-        emit FundsSwiped(randomAddress, platformAmount, recipientAmount);
-        aon.swipeFunds(payable(randomAddress));
+        emit FundsSwiped(swipeRecipient, platformAmount, recipientAmount);
+        aon.swipeFunds();
 
         assertEq(address(aon).balance, 0, "Contract balance should be zero");
         assertEq(
@@ -186,7 +213,7 @@ contract AonRefundTest is AonTestBase {
             "Fee recipient should not receive anything for failed contracts"
         );
         assertEq(
-            randomAddress.balance,
+            swipeRecipient.balance,
             recipientInitialBalance + contractBalance,
             "Recipient should receive all funds for failed contracts"
         );
@@ -203,10 +230,10 @@ contract AonRefundTest is AonTestBase {
 
         uint256 contractBalance = address(aon).balance;
         uint256 feeRecipientInitialBalance = feeRecipient.balance;
-        uint256 recipientInitialBalance = randomAddress.balance;
+        uint256 recipientInitialBalance = swipeRecipient.balance;
 
         vm.prank(factoryOwner);
-        aon.swipeFunds(payable(randomAddress));
+        aon.swipeFunds();
 
         assertEq(address(aon).balance, 0, "Contract balance should be zero");
         assertEq(
@@ -215,7 +242,7 @@ contract AonRefundTest is AonTestBase {
             "Fee recipient should not receive anything when there are no platform fees"
         );
         assertEq(
-            randomAddress.balance,
+            swipeRecipient.balance,
             recipientInitialBalance + contractBalance,
             "Recipient should receive all funds when there are no platform fees"
         );

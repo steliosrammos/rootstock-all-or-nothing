@@ -55,7 +55,7 @@ contract Aon is Initializable, Nonces {
     error InvalidGoalReachedStrategy();
     error InvalidCreator();
     error InvalidFeeRecipient();
-
+    error InvalidSwipeRecipient();
     /*
     * STATE ERRORS
     */
@@ -149,6 +149,7 @@ contract Aon is Initializable, Nonces {
     IOwnable public factory;
     address payable public creator;
     address payable public feeRecipient;
+    address payable public swipeRecipient;
     uint256 public goal;
     uint256 public endTime;
     uint256 public totalCreatorFee;
@@ -176,7 +177,8 @@ contract Aon is Initializable, Nonces {
         address _goalReachedStrategy,
         uint32 _claimWindow,
         uint32 _refundWindow,
-        address payable _feeRecipient
+        address payable _feeRecipient,
+        address payable _swipeRecipient
     ) public initializer {
         if (_goal == 0 ether) revert InvalidGoal();
         if (_durationInSeconds < 60 minutes) revert InvalidDuration();
@@ -185,6 +187,7 @@ contract Aon is Initializable, Nonces {
         if (_goalReachedStrategy == address(0)) revert InvalidGoalReachedStrategy();
         if (_creator == address(0)) revert InvalidCreator();
         if (_feeRecipient == address(0)) revert InvalidFeeRecipient();
+        if (_swipeRecipient == address(0)) revert InvalidSwipeRecipient();
 
         creator = _creator;
         goal = _goal;
@@ -194,6 +197,7 @@ contract Aon is Initializable, Nonces {
         goalReachedStrategy = IAonGoalReached(_goalReachedStrategy);
         factory = IOwnable(msg.sender);
         feeRecipient = _feeRecipient;
+        swipeRecipient = _swipeRecipient;
 
         // -----------------------------------------------------------------
         // Build and cache the EIP-712 domain separator for this contract
@@ -382,8 +386,6 @@ contract Aon is Initializable, Nonces {
     }
 
     function isValidSwipe() public view {
-        if (msg.sender != factory.owner()) revert OnlyFactoryCanSwipeFunds();
-
         // slither-disable-next-line timestamp
         /*
          Swiping funds is only allowed after both the claim and refund windows have expired.
@@ -620,13 +622,13 @@ contract Aon is Initializable, Nonces {
         emit Cancelled();
     }
 
-    function swipeFunds(address payable recipient) public {
+    function swipeFunds() public {
         isValidSwipe();
 
         // Send fees to fee recipient: both fees if unclaimed, otherwise only contributor fees
         uint256 fees = isUnclaimed() ? totalCreatorFee + totalContributorFee : totalContributorFee;
         uint256 recipientAmount = address(this).balance - fees;
-        emit FundsSwiped(recipient, fees, recipientAmount);
+        emit FundsSwiped(swipeRecipient, fees, recipientAmount);
 
         if (fees > 0) {
             (bool feeSent, bytes memory feeReason) = feeRecipient.call{value: fees}("");
@@ -634,8 +636,10 @@ contract Aon is Initializable, Nonces {
         }
 
         // Send everything (remaining) to recipient
-        (bool sent, bytes memory reason) = recipient.call{value: recipientAmount}("");
-        require(sent, FailedToSwipeFunds(reason));
+        if (recipientAmount > 0) {
+            (bool sent, bytes memory reason) = swipeRecipient.call{value: recipientAmount}("");
+            require(sent, FailedToSwipeFunds(reason));
+        }
     }
 
     function verifyEIP712SignatureForClaim(
