@@ -32,7 +32,7 @@ contract AonTest is Test {
     event Claimed(uint256 creatorAmount, uint256 creatorFeeAmount, uint256 contributorFeeAmount);
     event Cancelled();
     event Refunded();
-    event FundsSwiped(address recipient);
+    event FundsSwiped(address recipient, uint256 feeRecipientAmount, uint256 recipientAmount);
 
     /*
     * SETUP
@@ -414,6 +414,7 @@ contract AonTest is Test {
 
         uint256 contributorInitialBalance = contributor1.balance;
         uint256 initialTotalContributorFee = aon.totalContributorFee();
+        uint256 initialFeeRecipientBalance = feeRecipient.balance;
 
         vm.prank(contributor1);
         aon.refund(PROCESSING_FEE);
@@ -423,6 +424,11 @@ contract AonTest is Test {
             "Contributor should get money back"
         );
         assertEq(aon.totalContributorFee(), initialTotalContributorFee, "Total contributor fee should not change");
+        assertEq(
+            feeRecipient.balance,
+            initialFeeRecipientBalance + PROCESSING_FEE,
+            "Fee recipient should receive the processing fee"
+        );
     }
 
     function test_Refund_WithProcessingFee_Failure() public {
@@ -655,10 +661,12 @@ contract AonTest is Test {
 
         uint256 contractBalance = address(aon).balance;
         uint256 feeRecipientInitialBalance = feeRecipient.balance;
+        uint256 platformAmount = aon.totalContributorFee(); // 0 in this test
+        uint256 recipientAmount = contractBalance - platformAmount;
 
         vm.prank(factoryOwner);
         vm.expectEmit(true, false, false, true);
-        emit FundsSwiped(feeRecipient);
+        emit FundsSwiped(feeRecipient, platformAmount, recipientAmount);
         aon.swipeFunds(feeRecipient);
 
         assertEq(address(aon).balance, 0, "Contract balance should be zero");
@@ -703,13 +711,15 @@ contract AonTest is Test {
 
         uint256 contractBalance = address(aon).balance;
         uint256 claimableAmount = aon.claimableBalance();
-        uint256 platformAmount = contractBalance - claimableAmount;
+        uint256 platformAmount =
+            aon.isUnclaimed() ? aon.totalCreatorFee() + aon.totalContributorFee() : aon.totalContributorFee();
+        uint256 recipientAmount = contractBalance - platformAmount;
         uint256 feeRecipientInitialBalance = feeRecipient.balance;
         uint256 recipientInitialBalance = randomAddress.balance;
 
         vm.prank(factoryOwner);
         vm.expectEmit(true, false, false, true);
-        emit FundsSwiped(randomAddress);
+        emit FundsSwiped(randomAddress, platformAmount, recipientAmount);
         aon.swipeFunds(payable(randomAddress));
 
         assertEq(address(aon).balance, 0, "Contract balance should be zero");
@@ -768,12 +778,15 @@ contract AonTest is Test {
         assertTrue(aon.getStatus() == Aon.Status.Failed, "Contract should be failed");
 
         uint256 contractBalance = address(aon).balance;
+        uint256 platformAmount =
+            aon.isUnclaimed() ? aon.totalCreatorFee() + aon.totalContributorFee() : aon.totalContributorFee();
+        uint256 recipientAmount = contractBalance - platformAmount;
         uint256 feeRecipientInitialBalance = feeRecipient.balance;
         uint256 recipientInitialBalance = randomAddress.balance;
 
         vm.prank(factoryOwner);
         vm.expectEmit(true, false, false, true);
-        emit FundsSwiped(randomAddress);
+        emit FundsSwiped(randomAddress, platformAmount, recipientAmount);
         aon.swipeFunds(payable(randomAddress));
 
         assertEq(address(aon).balance, 0, "Contract balance should be zero");
@@ -903,6 +916,8 @@ contract AonTest is Test {
         uint256 initialTotalContributorFee = aon.totalContributorFee();
         bytes32 preimageHash = bytes32(0);
 
+        uint256 initialFeeRecipientBalance = feeRecipient.balance;
+
         bytes memory signature = _createRefundSignatureWithFeeAndRefundAddress(
             contributor1,
             swapContract,
@@ -937,6 +952,11 @@ contract AonTest is Test {
         assertEq(aon.contributions(contributor1), 0, "Contribution should be cleared");
         assertEq(aon.nonces(contributor1), nonce + 1, "Nonce should be incremented");
         assertEq(aon.totalContributorFee(), initialTotalContributorFee, "Total contributor fee should not change");
+        assertEq(
+            feeRecipient.balance,
+            initialFeeRecipientBalance + PROCESSING_FEE,
+            "Fee recipient should receive the processing fee"
+        );
     }
 
     // Helper function to create refund signature

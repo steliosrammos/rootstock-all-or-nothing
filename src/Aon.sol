@@ -35,7 +35,7 @@ contract Aon is Initializable, Nonces {
     // Contract events
     event Claimed(uint256 creatorAmount, uint256 creatorFeeAmount, uint256 contributorFeeAmount);
     event Cancelled();
-    event FundsSwiped(address recipient);
+    event FundsSwiped(address recipient, uint256 feeRecipientAmount, uint256 recipientAmount);
 
     // Contribution events
     event ContributionRefunded(address indexed contributor, uint256 amount);
@@ -156,15 +156,13 @@ contract Aon is Initializable, Nonces {
     uint256 public totalContributorFee;
     uint32 public claimWindow;
     uint32 public refundWindow;
-
+    uint8 public constant VERSION = 1;
     /*
-    * The status is only updated to Active, Cancelled or Claimed, other statuses are derived from contract state
+    * The status is only updated to Active, Claimed or Cancelled, other statuses are derived from contract state
     */
     Status public status = Status.Active;
     mapping(address => uint256) public contributions;
     IAonGoalReached public goalReachedStrategy;
-
-    uint8 public constant VERSION = 1;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -297,7 +295,7 @@ contract Aon is Initializable, Nonces {
     /*
     * Validation Functions
     */
-    function isValidRefund(address contributor, uint256 processingFee) public view returns (uint256) {
+    function getRefundAmount(address contributor, uint256 processingFee) public view returns (uint256) {
         if (isClaimed()) revert CannotRefundClaimedContract();
 
         uint256 refundAmount = contributions[contributor];
@@ -416,9 +414,7 @@ contract Aon is Initializable, Nonces {
      * @notice Refund the sender's contributions. Used to refund contributions directly on Rootstock.
      */
     function refund(uint256 processingFee) external {
-        uint256 refundAmount = isValidRefund(msg.sender, processingFee);
-
-        // totalContributorFee += processingFee;
+        uint256 refundAmount = getRefundAmount(msg.sender, processingFee);
 
         contributions[msg.sender] = 0;
         emit ContributionRefunded(msg.sender, refundAmount);
@@ -464,7 +460,7 @@ contract Aon is Initializable, Nonces {
         if (lockParams.claimAddress == address(0)) revert InvalidClaimAddress();
         if (lockParams.refundAddress == address(0)) revert InvalidRefundAddress();
 
-        uint256 refundAmount = isValidRefund(contributor, processingFee);
+        uint256 refundAmount = getRefundAmount(contributor, processingFee);
 
         verifyEIP712SignatureForRefund(
             contributor,
@@ -476,8 +472,6 @@ contract Aon is Initializable, Nonces {
             refundAmount,
             lockParams.refundAddress
         );
-
-        // totalContributorFee += processingFee;
 
         contributions[contributor] = 0;
         emit ContributionRefunded(contributor, refundAmount);
@@ -591,23 +585,19 @@ contract Aon is Initializable, Nonces {
 
     function swipeFunds(address payable recipient) public {
         isValidSwipe();
-        emit FundsSwiped(recipient);
 
-        uint256 contractBalance = address(this).balance;
+        // Send fees to fee recipient: both fees if unclaimed, otherwise only contributor fees
+        uint256 fees = isUnclaimed() ? totalCreatorFee + totalContributorFee : totalContributorFee;
+        uint256 recipientAmount = address(this).balance - fees;
+        emit FundsSwiped(recipient, fees, recipientAmount);
 
-        // If the contract is unclaimed, send the platform fee and the claimable amount to the fee recipient
-        if (isUnclaimed()) {
-            uint256 claimable = claimableBalance();
-            uint256 platformAmount = contractBalance - claimable;
-
-            (bool feeSent, bytes memory feeReason) = feeRecipient.call{value: platformAmount}("");
+        if (fees > 0) {
+            (bool feeSent, bytes memory feeReason) = feeRecipient.call{value: fees}("");
             require(feeSent, FailedToSendFeeRecipientAmount(feeReason));
-
-            contractBalance = claimable; // Only claimable amount left for recipient
         }
 
         // Send everything (remaining) to recipient
-        (bool sent, bytes memory reason) = recipient.call{value: contractBalance}("");
+        (bool sent, bytes memory reason) = recipient.call{value: recipientAmount}("");
         require(sent, FailedToSwipeFunds(reason));
     }
 
