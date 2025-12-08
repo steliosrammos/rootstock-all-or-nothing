@@ -1,70 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.30;
 
-import "forge-std/Test.sol";
-import "../src/Aon.sol";
-import "../src/AonProxy.sol";
-import "../src/AonGoalReachedNative.sol";
+import "./AonTestBase.sol";
 
-contract AonContributeTest is Test {
-    Aon aon;
-    AonGoalReachedNative private goalReachedStrategy;
-
-    address payable private creator;
-    uint256 private creatorPrivateKey;
-
-    address payable private contributor1;
-    uint256 private contributor1PrivateKey;
-
-    address payable private contributor2 = payable(makeAddr("contributor2"));
-    address private factoryOwner;
-    address payable private feeRecipient = payable(makeAddr("feeRecipient"));
-
-    uint256 private constant GOAL = 10 ether;
-    uint32 private constant DURATION = 30 days;
-    uint256 private constant CONTRIBUTION_AMOUNT = 1 ether;
-    uint256 private constant PROCESSING_FEE = 0.1 ether;
-
-    event ContributionReceived(address indexed contributor, uint256 amount);
-
-    /*
-    * SETUP
-    */
-
-    function setUp() public {
-        (address _creator, uint256 _creatorPrivateKey) = makeAddrAndKey("creator");
-        creator = payable(_creator);
-        creatorPrivateKey = _creatorPrivateKey;
-
-        (address _contributor1, uint256 _contributor1PrivateKey) = makeAddrAndKey("contributor1");
-        contributor1 = payable(_contributor1);
-        contributor1PrivateKey = _contributor1PrivateKey;
-
-        factoryOwner = address(this);
-        goalReachedStrategy = new AonGoalReachedNative();
-
-        // Deploy implementation and proxy
-        Aon implementation = new Aon();
-        AonProxy proxy = new AonProxy(address(implementation));
-        aon = Aon(address(proxy));
-
-        // Initialize contract via proxy
-        vm.prank(factoryOwner);
-        aon.initialize(creator, GOAL, DURATION, address(goalReachedStrategy), 30 days, 30 days, feeRecipient);
-
-        vm.deal(contributor1, 100 ether);
-        vm.deal(contributor2, 100 ether);
-        vm.deal(creator, 1 ether); // Give creator some ETH for gas
-    }
-
-    /// @dev The test contract itself acts as the factory, so it must implement owner().
-    function owner() public view returns (address) {
-        return address(this);
-    }
-
-    /// @dev The test contract needs to be able to receive swiped funds.
-    receive() external payable {}
-
+contract AonContributeTest is AonTestBase {
     /*
     * CONTRIBUTE TESTS
     */

@@ -1,77 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.30;
 
-import "forge-std/Test.sol";
-import "../src/Aon.sol";
-import "../src/AonProxy.sol";
-import "../src/AonGoalReachedNative.sol";
+import "./AonTestBase.sol";
 
-contract AonRefundTest is Test {
-    Aon aon;
-    AonGoalReachedNative private goalReachedStrategy;
-
-    address payable private creator;
-    uint256 private creatorPrivateKey;
-
-    address payable private contributor1;
-    uint256 private contributor1PrivateKey;
-
-    address payable private contributor2 = payable(makeAddr("contributor2"));
-    address private factoryOwner;
-    address private randomAddress = makeAddr("random");
-    address payable private feeRecipient = payable(makeAddr("feeRecipient"));
-
-    uint256 private constant GOAL = 10 ether;
-    uint32 private constant DURATION = 30 days;
-    uint256 private constant PLATFORM_FEE = 250; // 2.5% in basis points
-    uint256 private constant CONTRIBUTION_AMOUNT = 1 ether;
-    uint256 private constant PROCESSING_FEE = 0.1 ether;
-
-    event ContributionReceived(address indexed contributor, uint256 amount);
-    event ContributionRefunded(address indexed contributor, uint256 amount);
-    event Claimed(uint256 creatorAmount, uint256 creatorFeeAmount, uint256 contributorFeeAmount);
-    event Cancelled();
-    event Refunded();
-    event FundsSwiped(address recipient, uint256 feeRecipientAmount, uint256 recipientAmount);
-
-    /*
-    * SETUP
-    */
-
-    function setUp() public {
-        (address _creator, uint256 _creatorPrivateKey) = makeAddrAndKey("creator");
-        creator = payable(_creator);
-        creatorPrivateKey = _creatorPrivateKey;
-
-        (address _contributor1, uint256 _contributor1PrivateKey) = makeAddrAndKey("contributor1");
-        contributor1 = payable(_contributor1);
-        contributor1PrivateKey = _contributor1PrivateKey;
-
-        factoryOwner = address(this);
-        goalReachedStrategy = new AonGoalReachedNative();
-
-        // Deploy implementation and proxy
-        Aon implementation = new Aon();
-        AonProxy proxy = new AonProxy(address(implementation));
-        aon = Aon(address(proxy));
-
-        // Initialize contract via proxy
-        vm.prank(factoryOwner);
-        aon.initialize(creator, GOAL, DURATION, address(goalReachedStrategy), 30 days, 30 days, feeRecipient);
-
-        vm.deal(contributor1, 100 ether);
-        vm.deal(contributor2, 100 ether);
-        vm.deal(creator, 1 ether); // Give creator some ETH for gas
-    }
-
-    /// @dev The test contract itself acts as the factory, so it must implement owner().
-    function owner() public view returns (address) {
-        return address(this);
-    }
-
-    /// @dev The test contract needs to be able to receive swiped funds.
-    receive() external payable {}
-
+contract AonRefundTest is AonTestBase {
     function test_SwipeFunds_ReentrancyAttack() public {
         // 1. Deploy attacker that will act as the factory owner
         MaliciousFactoryOwner attacker = new MaliciousFactoryOwner();
@@ -289,36 +221,3 @@ contract AonRefundTest is Test {
         );
     }
 }
-
-/// @dev A mock factory used for the swipeFunds re-entrancy test.
-/// It allows us to set a malicious owner.
-contract MaliciousFactory is IOwnable {
-    address public immutable override owner;
-
-    constructor(address _owner) {
-        owner = _owner;
-    }
-}
-
-    /// @dev An attacker contract to test re-entrancy on swipeFunds.
-    /// It poses as the factory owner and tries to cancel the campaign
-    /// when it receives the swiped funds.
-    contract MaliciousFactoryOwner {
-        Aon aon;
-
-        function setAon(Aon _aon) external {
-            aon = _aon;
-        }
-
-        function swipe(address payable recipient) external {
-            aon.swipeFunds(recipient);
-        }
-
-        receive() external payable {
-            // When we receive the swiped funds, try to cancel.
-            // The `cancel` call will check if `msg.sender == factory.owner()`.
-            // Since this contract is the factory owner in the test setup,
-            // the vulnerable contract will allow this.
-            aon.cancel();
-        }
-    }
