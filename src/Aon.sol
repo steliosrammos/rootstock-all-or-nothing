@@ -134,10 +134,10 @@ contract Aon is Initializable, Nonces {
     bytes32 private constant _EIP712_DOMAIN_TYPEHASH =
         keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
     bytes32 private constant _REFUND_TO_SWAP_CONTRACT_TYPEHASH = keccak256(
-        "Refund(address contributor,address swapContract,uint256 amount,uint256 nonce,uint256 deadline,uint256 processingFee,bytes32 preimageHash)"
+        "Refund(address contributor,address swapContract,uint256 amount,uint256 nonce,uint256 deadline,uint256 processingFee,bytes32 preimageHash,address refundAddress)"
     );
     bytes32 private constant _CLAIM_TO_SWAP_CONTRACT_TYPEHASH = keccak256(
-        "Claim(address creator,address swapContract,uint256 amount,uint256 nonce,uint256 deadline,uint256 processingFee,bytes32 preimageHash)"
+        "Claim(address creator,address swapContract,uint256 amount,uint256 nonce,uint256 deadline,uint256 processingFee,bytes32 preimageHash,address refundAddress)"
     );
 
     // Cached domain separator built in `initialize`
@@ -467,7 +467,14 @@ contract Aon is Initializable, Nonces {
         uint256 refundAmount = isValidRefund(contributor, processingFee);
 
         verifyEIP712SignatureForRefund(
-            contributor, swapContract, deadline, signature, lockParams.preimageHash, processingFee, refundAmount
+            contributor,
+            swapContract,
+            deadline,
+            signature,
+            lockParams.preimageHash,
+            processingFee,
+            refundAmount,
+            lockParams.refundAddress
         );
 
         // totalContributorFee += processingFee;
@@ -485,7 +492,8 @@ contract Aon is Initializable, Nonces {
         bytes calldata signature,
         bytes32 preimageHash,
         uint256 processingFee,
-        uint256 refundAmount
+        uint256 refundAmount,
+        address refundAddress
     ) private {
         uint256 nonce = nonces(contributor);
         bytes32 structHash = keccak256(
@@ -497,7 +505,8 @@ contract Aon is Initializable, Nonces {
                 nonce,
                 deadline,
                 processingFee,
-                preimageHash
+                preimageHash,
+                refundAddress
             )
         );
         bytes32 digest = MessageHashUtils.toTypedDataHash(_DOMAIN_SEPARATOR, structHash);
@@ -559,7 +568,13 @@ contract Aon is Initializable, Nonces {
         uint256 creatorAmount = claimableBalance();
 
         verifyEIP712SignatureForClaim(
-            swapContract, creatorAmount, deadline, signature, lockParams.preimageHash, processingFee
+            swapContract,
+            creatorAmount,
+            deadline,
+            signature,
+            lockParams.preimageHash,
+            processingFee,
+            lockParams.refundAddress
         );
 
         status = Status.Claimed;
@@ -602,7 +617,8 @@ contract Aon is Initializable, Nonces {
         uint256 deadline,
         bytes calldata signature,
         bytes32 preimageHash,
-        uint256 processingFee
+        uint256 processingFee,
+        address refundAddress
     ) private {
         uint256 nonce = nonces(creator);
         bytes32 structHash = keccak256(
@@ -614,7 +630,8 @@ contract Aon is Initializable, Nonces {
                 nonce,
                 deadline,
                 processingFee,
-                preimageHash
+                preimageHash,
+                refundAddress
             )
         );
 
@@ -644,8 +661,8 @@ contract Aon is Initializable, Nonces {
                     lockParams.functionSignature,
                     lockParams.preimageHash,
                     lockParams.claimAddress,
-                    lockParams.refundAddress,
-                    lockParams.timelock
+                    lockParams.timelock,
+                    lockParams.refundAddress
                 )
             );
             require(success, FailedToSendFundsInClaim(reason));

@@ -836,7 +836,7 @@ contract AonTest is Test {
         bytes32 structHash = keccak256(
             abi.encode(
                 keccak256(
-                    "Refund(address contributor,address swapContract,uint256 amount,uint256 nonce,uint256 deadline,uint256 processingFee,bytes32 preimageHash)"
+                    "Refund(address contributor,address swapContract,uint256 amount,uint256 nonce,uint256 deadline,uint256 processingFee,bytes32 preimageHash,address refundAddress)"
                 ),
                 contributor1,
                 swapContract,
@@ -844,7 +844,8 @@ contract AonTest is Test {
                 nonce,
                 deadline,
                 processingFee,
-                preimageHash
+                preimageHash,
+                address(0x456)
             )
         );
 
@@ -902,8 +903,8 @@ contract AonTest is Test {
         uint256 initialTotalContributorFee = aon.totalContributorFee();
         bytes32 preimageHash = bytes32(0);
 
-        bytes memory signature = _createRefundSignatureWithFee(
-            contributor1, swapContract, expectedRefund, deadline, PROCESSING_FEE, preimageHash, contributor1PrivateKey
+        bytes memory signature = _createRefundSignatureWithFeeAndRefundAddress(
+            contributor1, swapContract, expectedRefund, deadline, PROCESSING_FEE, preimageHash, address(0x456), contributor1PrivateKey
         );
 
         // Execute refund with signature
@@ -939,7 +940,7 @@ contract AonTest is Test {
         uint256 deadline,
         uint256 privateKey
     ) internal view returns (bytes memory) {
-        return _createRefundSignatureWithFee(contributor, swapContract, amount, deadline, 0, bytes32(0), privateKey);
+        return _createRefundSignatureWithFeeAndRefundAddress(contributor, swapContract, amount, deadline, 0, bytes32(0), address(0x456), privateKey);
     }
 
     // Helper function to create refund signature with processing fee and preimage hash
@@ -952,12 +953,28 @@ contract AonTest is Test {
         bytes32 preimageHash,
         uint256 privateKey
     ) internal view returns (bytes memory) {
+        return _createRefundSignatureWithFeeAndRefundAddress(
+            contributor, swapContract, amount, deadline, processingFee, preimageHash, address(0x456), privateKey
+        );
+    }
+
+    // Helper function to create refund signature with processing fee, preimage hash, and refund address
+    function _createRefundSignatureWithFeeAndRefundAddress(
+        address contributor,
+        address swapContract,
+        uint256 amount,
+        uint256 deadline,
+        uint256 processingFee,
+        bytes32 preimageHash,
+        address refundAddress,
+        uint256 privateKey
+    ) internal view returns (bytes memory) {
         uint256 nonce = aon.nonces(contributor);
 
         bytes32 structHash = keccak256(
             abi.encode(
                 keccak256(
-                    "Refund(address contributor,address swapContract,uint256 amount,uint256 nonce,uint256 deadline,uint256 processingFee,bytes32 preimageHash)"
+                    "Refund(address contributor,address swapContract,uint256 amount,uint256 nonce,uint256 deadline,uint256 processingFee,bytes32 preimageHash,address refundAddress)"
                 ),
                 contributor,
                 swapContract,
@@ -965,7 +982,8 @@ contract AonTest is Test {
                 nonce,
                 deadline,
                 processingFee,
-                preimageHash
+                preimageHash,
+                refundAddress
             )
         );
 
@@ -1096,7 +1114,7 @@ contract AonTest is Test {
         bytes32 structHash = keccak256(
             abi.encode(
                 keccak256(
-                    "Claim(address creator,address swapContract,uint256 amount,uint256 nonce,uint256 deadline,uint256 processingFee,bytes32 preimageHash)"
+                    "Claim(address creator,address swapContract,uint256 amount,uint256 nonce,uint256 deadline,uint256 processingFee,bytes32 preimageHash,address refundAddress)"
                 ),
                 creator,
                 swapContract,
@@ -1104,7 +1122,8 @@ contract AonTest is Test {
                 aon.nonces(creator),
                 deadline,
                 processingFee,
-                preimageHash
+                preimageHash,
+                address(0x789)
             )
         );
 
