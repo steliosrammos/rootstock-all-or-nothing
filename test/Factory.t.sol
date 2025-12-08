@@ -27,7 +27,7 @@ contract FactoryTest is Test {
         goalStrategy = new AonGoalReachedNative();
 
         // Deploy factory
-        factory = new Factory(address(aonImplementation), swipeRecipient, owner);
+        factory = new Factory(address(aonImplementation), swipeRecipient, feeRecipient, owner);
 
         vm.stopPrank();
     }
@@ -39,12 +39,12 @@ contract FactoryTest is Test {
 
     function test_Constructor_WithZeroImplementation_Reverts() public {
         vm.expectRevert(Factory.InvalidImplementation.selector);
-        new Factory(address(0), swipeRecipient, owner);
+        new Factory(address(0), swipeRecipient, feeRecipient, owner);
     }
 
     function test_Constructor_WithZeroOwner_Reverts() public {
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableInvalidOwner.selector, address(0)));
-        new Factory(address(aonImplementation), swipeRecipient, address(0));
+        new Factory(address(aonImplementation), swipeRecipient, feeRecipient, address(0));
     }
 
     function test_SetImplementation_OnlyOwner() public {
@@ -74,7 +74,7 @@ contract FactoryTest is Test {
         vm.prank(creator);
 
         // Test that create doesn't revert and creates a proxy
-        factory.create(payable(creator), 10 ether, 30 days, address(goalStrategy), 7 days, 30 days, feeRecipient);
+        factory.create(payable(creator), 10 ether, 30 days, address(goalStrategy), 7 days, 30 days);
     }
 
     function test_Create_InitializesProxy() public {
@@ -82,16 +82,16 @@ contract FactoryTest is Test {
 
         // We can't directly test the initialization without knowing the proxy address
         // But we can test that the function doesn't revert
-        factory.create(payable(creator), 10 ether, 30 days, address(goalStrategy), 7 days, 30 days, feeRecipient);
+        factory.create(payable(creator), 10 ether, 30 days, address(goalStrategy), 7 days, 30 days);
     }
 
     function test_Create_WithDifferentParameters() public {
         vm.prank(creator);
 
         // Test with different goal amounts
-        factory.create(payable(creator), 1 ether, 7 days, address(goalStrategy), 1 days, 30 days, feeRecipient);
+        factory.create(payable(creator), 1 ether, 7 days, address(goalStrategy), 1 days, 30 days);
 
-        factory.create(payable(creator), 100 ether, 365 days, address(goalStrategy), 30 days, 30 days, feeRecipient);
+        factory.create(payable(creator), 100 ether, 365 days, address(goalStrategy), 30 days, 30 days);
     }
 
     function test_Create_WithZeroGoal_Reverts() public {
@@ -99,13 +99,13 @@ contract FactoryTest is Test {
 
         // Should revert with zero goal
         vm.expectRevert(Aon.InvalidGoal.selector);
-        factory.create(payable(creator), 0, 30 days, address(goalStrategy), 7 days, 30 days, feeRecipient);
+        factory.create(payable(creator), 0, 30 days, address(goalStrategy), 7 days, 30 days);
     }
 
     function test_Create_WithTooSmallGoal_Reverts() public {
         vm.prank(creator);
         vm.expectRevert(Aon.InvalidGoal.selector);
-        factory.create(payable(creator), 0 ether, 30 days, address(goalStrategy), 7 days, 60 minutes, feeRecipient);
+        factory.create(payable(creator), 0 ether, 30 days, address(goalStrategy), 7 days, 60 minutes);
     }
 
     function test_Create_WithZeroDuration_Reverts() public {
@@ -113,14 +113,14 @@ contract FactoryTest is Test {
 
         // Should revert with zero duration
         vm.expectRevert(Aon.InvalidDuration.selector);
-        factory.create(payable(creator), 10 ether, 0, address(goalStrategy), 7 days, 60 minutes, feeRecipient);
+        factory.create(payable(creator), 10 ether, 0, address(goalStrategy), 7 days, 60 minutes);
     }
 
     function test_Create_WithTooShortDuration_Reverts() public {
         vm.prank(creator);
 
         vm.expectRevert(Aon.InvalidDuration.selector);
-        factory.create(payable(creator), 10 ether, 30 minutes, address(goalStrategy), 7 days, 60 minutes, feeRecipient);
+        factory.create(payable(creator), 10 ether, 30 minutes, address(goalStrategy), 7 days, 60 minutes);
     }
 
     function test_Create_WithZeroClaimWindow_Reverts() public {
@@ -128,30 +128,28 @@ contract FactoryTest is Test {
 
         // Should revert with zero claim window
         vm.expectRevert(Aon.InvalidClaimWindow.selector);
-        factory.create(payable(creator), 10 ether, 30 days, address(goalStrategy), 0, 60 minutes, feeRecipient);
+        factory.create(payable(creator), 10 ether, 30 days, address(goalStrategy), 0, 60 minutes);
     }
 
     function test_Create_WithTooShortClaimWindow_Reverts() public {
         vm.prank(creator);
 
         vm.expectRevert(Aon.InvalidClaimWindow.selector);
-        factory.create(payable(creator), 10 ether, 30 days, address(goalStrategy), 30 minutes, 60 minutes, feeRecipient);
+        factory.create(payable(creator), 10 ether, 30 days, address(goalStrategy), 30 minutes, 60 minutes);
     }
 
     function test_Create_WithDifferentCreator() public {
         address differentCreator = address(0x999);
 
         vm.prank(differentCreator);
-        factory.create(
-            payable(differentCreator), 10 ether, 30 days, address(goalStrategy), 7 days, 60 minutes, feeRecipient
-        );
+        factory.create(payable(differentCreator), 10 ether, 30 days, address(goalStrategy), 7 days, 60 minutes);
     }
 
     function test_Create_WithDifferentStrategy() public {
         address differentStrategy = address(0x888);
 
         vm.prank(creator);
-        factory.create(payable(creator), 10 ether, 30 days, differentStrategy, 7 days, 60 minutes, feeRecipient);
+        factory.create(payable(creator), 10 ether, 30 days, differentStrategy, 7 days, 60 minutes);
     }
 
     function test_Create_WithZeroAddressStrategy_Reverts() public {
@@ -159,7 +157,7 @@ contract FactoryTest is Test {
 
         // Should revert with zero address strategy
         vm.expectRevert(Aon.InvalidGoalReachedStrategy.selector);
-        factory.create(payable(creator), 10 ether, 30 days, address(0), 7 days, 60 minutes, feeRecipient);
+        factory.create(payable(creator), 10 ether, 30 days, address(0), 7 days, 60 minutes);
     }
 
     function test_Create_WithZeroAddressCreator_Reverts() public {
@@ -167,18 +165,18 @@ contract FactoryTest is Test {
 
         // Should revert with zero address creator
         vm.expectRevert(Aon.InvalidCreator.selector);
-        factory.create(payable(address(0)), 10 ether, 30 days, address(goalStrategy), 7 days, 60 minutes, feeRecipient);
+        factory.create(payable(address(0)), 10 ether, 30 days, address(goalStrategy), 7 days, 60 minutes);
     }
 
     function test_Create_MultipleCampaigns() public {
         vm.startPrank(creator);
 
         // Create multiple campaigns
-        factory.create(payable(creator), 10 ether, 30 days, address(goalStrategy), 7 days, 60 minutes, feeRecipient);
+        factory.create(payable(creator), 10 ether, 30 days, address(goalStrategy), 7 days, 60 minutes);
 
-        factory.create(payable(creator), 5 ether, 14 days, address(goalStrategy), 3 days, 60 minutes, feeRecipient);
+        factory.create(payable(creator), 5 ether, 14 days, address(goalStrategy), 3 days, 60 minutes);
 
-        factory.create(payable(creator), 20 ether, 60 days, address(goalStrategy), 14 days, 60 minutes, feeRecipient);
+        factory.create(payable(creator), 20 ether, 60 days, address(goalStrategy), 14 days, 60 minutes);
 
         vm.stopPrank();
     }
@@ -187,9 +185,7 @@ contract FactoryTest is Test {
         vm.prank(creator);
 
         // Test with minimum valid values (60 minutes for both duration and claim window)
-        factory.create(
-            payable(creator), 0.001 ether, 60 minutes, address(goalStrategy), 60 minutes, 60 minutes, feeRecipient
-        );
+        factory.create(payable(creator), 0.001 ether, 60 minutes, address(goalStrategy), 60 minutes, 60 minutes);
     }
 
     function test_Create_WithLargeValues() public {
@@ -202,8 +198,7 @@ contract FactoryTest is Test {
             365 days, // 1 year
             address(goalStrategy),
             30 days, // 30 days claim window
-            60 minutes, // 60 minutes refund window
-            feeRecipient
+            60 minutes // 60 minutes refund window
         );
     }
 
@@ -225,7 +220,7 @@ contract FactoryTest is Test {
 
         // Test that new implementation is used in create
         vm.prank(creator);
-        factory.create(payable(creator), 10 ether, 30 days, address(goalStrategy), 7 days, 60 minutes, feeRecipient);
+        factory.create(payable(creator), 10 ether, 30 days, address(goalStrategy), 7 days, 60 minutes);
     }
 
     function test_Factory_IsOwnable() public view {
@@ -280,6 +275,6 @@ contract FactoryTest is Test {
 
     function test_Constructor_WithZeroSwipeRecipient_Reverts() public {
         vm.expectRevert(Factory.InvalidSwipeRecipient.selector);
-        new Factory(address(aonImplementation), payable(address(0)), owner);
+        new Factory(address(aonImplementation), payable(address(0)), feeRecipient, owner);
     }
 }

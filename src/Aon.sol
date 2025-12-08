@@ -13,6 +13,7 @@ interface IOwnable {
 
 interface IFactory is IOwnable {
     function swipeRecipient() external view returns (address payable);
+    function feeRecipient() external view returns (address payable);
 }
 
 /**
@@ -58,7 +59,6 @@ contract Aon is Initializable, Nonces {
     error InvalidRefundWindow();
     error InvalidGoalReachedStrategy();
     error InvalidCreator();
-    error InvalidFeeRecipient();
 
     /*
     * STATE ERRORS
@@ -188,7 +188,6 @@ contract Aon is Initializable, Nonces {
         if (_refundWindow < 60 minutes) revert InvalidRefundWindow();
         if (_goalReachedStrategy == address(0)) revert InvalidGoalReachedStrategy();
         if (_creator == address(0)) revert InvalidCreator();
-        if (_feeRecipient == address(0)) revert InvalidFeeRecipient();
 
         creator = _creator;
         feeRecipient = _feeRecipient;
@@ -460,7 +459,7 @@ contract Aon is Initializable, Nonces {
 
         // Send processing fee to fee recipient
         if (processingFee > 0) {
-            (bool success, bytes memory reason) = feeRecipient.call{value: processingFee}("");
+            (bool success, bytes memory reason) = factory.feeRecipient().call{value: processingFee}("");
             require(success, FailedToSendFeeRecipientAmount(reason));
         }
 
@@ -560,7 +559,7 @@ contract Aon is Initializable, Nonces {
         uint256 totalPlatformAmount = totalCreatorFee + totalContributorFee;
         if (totalPlatformAmount > 0) {
             // slither-disable-next-line low-level-calls
-            (bool success, bytes memory reason) = feeRecipient.call{value: totalPlatformAmount}("");
+            (bool success, bytes memory reason) = factory.feeRecipient().call{value: totalPlatformAmount}("");
             require(success, FailedToSendFeeRecipientAmount(reason));
         }
 
@@ -633,7 +632,7 @@ contract Aon is Initializable, Nonces {
         emit FundsSwiped(swipeRecipient, fees, recipientAmount);
 
         if (fees > 0) {
-            (bool feeSent, bytes memory feeReason) = feeRecipient.call{value: fees}("");
+            (bool feeSent, bytes memory feeReason) = factory.feeRecipient().call{value: fees}("");
             require(feeSent, FailedToSendFeeRecipientAmount(feeReason));
         }
 
@@ -682,7 +681,7 @@ contract Aon is Initializable, Nonces {
         SwapContractLockParams calldata lockParams
     ) private {
         if (feeRecipientAmount > 0) {
-            (bool success, bytes memory reason) = feeRecipient.call{value: feeRecipientAmount}("");
+            (bool success, bytes memory reason) = factory.feeRecipient().call{value: feeRecipientAmount}("");
             require(success, FailedToSendFeeRecipientAmount(reason));
         }
 

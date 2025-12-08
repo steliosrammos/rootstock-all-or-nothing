@@ -169,11 +169,13 @@ contract MaliciousRefund {
 contract MaliciousFactory is IFactory {
     address public immutable override owner;
     address payable public immutable override swipeRecipient;
+    address payable public immutable override feeRecipient;
 
     constructor(address _owner) {
         owner = _owner;
         // Set swipeRecipient to the attacker so funds go there and trigger reentrancy
         swipeRecipient = payable(_owner);
+        feeRecipient = payable(_owner);
     }
 }
 

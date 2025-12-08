@@ -10,16 +10,22 @@ contract Factory is Ownable {
 
     address public implementation;
     address payable public swipeRecipient;
+    address payable public feeRecipient;
 
     error InvalidImplementation();
     error InvalidSwipeRecipient();
+    error InvalidFeeRecipient();
     error InvalidOwner();
 
-    constructor(address _implementation, address payable _swipeRecipient, address _owner) Ownable(_owner) {
+    constructor(address _implementation, address payable _swipeRecipient, address payable _feeRecipient, address _owner)
+        Ownable(_owner)
+    {
         if (_implementation == address(0)) revert InvalidImplementation();
         if (_swipeRecipient == address(0)) revert InvalidSwipeRecipient();
+        if (_feeRecipient == address(0)) revert InvalidFeeRecipient();
         implementation = _implementation;
         swipeRecipient = _swipeRecipient;
+        feeRecipient = _feeRecipient;
     }
 
     function setImplementation(address _implementation) public onlyOwner {
@@ -30,6 +36,11 @@ contract Factory is Ownable {
     function setSwipeRecipient(address payable _swipeRecipient) public onlyOwner {
         if (_swipeRecipient == address(0)) revert InvalidSwipeRecipient();
         swipeRecipient = _swipeRecipient;
+    }
+
+    function setFeeRecipient(address payable _feeRecipient) public onlyOwner {
+        if (_feeRecipient == address(0)) revert InvalidFeeRecipient();
+        feeRecipient = _feeRecipient;
     }
 
     /**
@@ -47,8 +58,7 @@ contract Factory is Ownable {
         uint32 durationInSeconds,
         address goalReachedStrategy,
         uint32 claimWindow,
-        uint32 refundWindow,
-        address payable feeRecipient
+        uint32 refundWindow
     ) external {
         AonProxy proxy = new AonProxy(implementation);
         emit AonCreated(address(proxy));
