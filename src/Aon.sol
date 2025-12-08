@@ -76,7 +76,7 @@ contract Aon is Initializable, Nonces {
     error CannotClaimCancelledContract();
     error CannotClaimClaimedContract();
     error CannotClaimFailedContract();
-    error CannotClaimUnclaimedContract();
+    error CannotClaimAfterClaimWindow();
     error OnlyCreatorCanClaim();
     error FailedToSendFundsInClaim(bytes reason);
     error FailedToSendFeeRecipientAmount(bytes reason);
@@ -234,6 +234,13 @@ contract Aon is Initializable, Nonces {
     /*
     * Derived State Functions
     */
+
+    /**
+     * @notice Returns true if the contract is finalized.
+     * @dev The contract is finalized if the balance is 0, the deadline is reached and both the claim and refund windows have expired.
+     *  (ie: the contract has been claimed, fully refunded or swiped)
+     * @return true if the contract is finalized, false otherwise.
+     */
     function isFinalized() internal view returns (bool) {
         // slither-disable-next-line timestamp
         return (address(this).balance == 0 && block.timestamp > (endTime + claimWindow + refundWindow));
@@ -249,6 +256,10 @@ contract Aon is Initializable, Nonces {
 
     // slither-disable-next-line timestamp
     function isUnclaimed() public view returns (bool) {
+        // Check stored status first - if already set to Unclaimed, return true
+        if (status == Status.Unclaimed) return true;
+
+        // Otherwise derive from current state
         return _isUnclaimed(goalReachedStrategy.isGoalReached());
     }
 
@@ -256,7 +267,7 @@ contract Aon is Initializable, Nonces {
     // slither-disable-next-line timestamp
     function _isUnclaimed(bool goalReached) internal view returns (bool) {
         // slither-disable-next-line timestamp
-        return (block.timestamp > endTime + claimWindow && goalReached);
+        return status == Status.Unclaimed || (block.timestamp > endTime + claimWindow && goalReached);
     }
 
     // slither-disable-next-line timestamp
@@ -283,11 +294,10 @@ contract Aon is Initializable, Nonces {
         // Active - derive actual state from goal and time
         bool goalReached = goalReachedStrategy.isGoalReached();
 
+        if (_isUnclaimed(goalReached)) return Status.Unclaimed;
         if (_isFailed(goalReached)) return Status.Failed;
 
-        if (goalReached) {
-            return _isUnclaimed(goalReached) ? Status.Unclaimed : Status.Successful;
-        }
+        if (goalReached) return Status.Successful;
 
         return Status.Active;
     }
@@ -298,16 +308,20 @@ contract Aon is Initializable, Nonces {
     function getRefundAmount(address contributor, uint256 processingFee) public view returns (uint256) {
         if (isClaimed()) revert CannotRefundClaimedContract();
 
+        bool goalReached = goalReachedStrategy.isGoalReached();
+
         uint256 refundAmount = contributions[contributor];
         if (refundAmount <= 0) revert CannotRefundZeroContribution();
         if (processingFee > refundAmount) revert ProcessingFeeHigherThanRefundAmount(refundAmount, processingFee);
 
         refundAmount -= processingFee;
 
-        // Cache the external call result to avoid multiple expensive calls
-        bool goalReached = goalReachedStrategy.isGoalReached();
         uint256 _goalBalance = goalBalance();
 
+        /*
+            A refund  can be claimed before the goal is reached, or if the refund would not cause the balance to drop
+            below the goal (unless the contract is unclaimed).
+        */
         if (goalReached && _goalBalance - refundAmount < goal && !_isUnclaimed(goalReached)) {
             revert InsufficientBalanceForRefund(_goalBalance, refundAmount, goal);
         }
@@ -327,7 +341,7 @@ contract Aon is Initializable, Nonces {
         bool goalReached = goalReachedStrategy.isGoalReached();
 
         if (_isFailed(goalReached)) revert CannotClaimFailedContract();
-        if (_isUnclaimed(goalReached)) revert CannotClaimUnclaimedContract();
+        if (block.timestamp > endTime + claimWindow) revert CannotClaimAfterClaimWindow();
         if (!goalReached) revert GoalNotReached();
     }
 
@@ -371,6 +385,10 @@ contract Aon is Initializable, Nonces {
         if (msg.sender != factory.owner()) revert OnlyFactoryCanSwipeFunds();
 
         // slither-disable-next-line timestamp
+        /*
+         Swiping funds is only allowed after both the claim and refund windows have expired.
+         This is to give ample time for the creator or contributors to get their funds.
+        */
         if (block.timestamp <= endTime + claimWindow + refundWindow) {
             revert CannotSwipeFundsBeforeEndOfClaimOrRefundWindow();
         }
@@ -410,11 +428,30 @@ contract Aon is Initializable, Nonces {
         contributeFor(msg.sender, fee, tip);
     }
 
+    function prepareRefund(address contributor, uint256 processingFee) internal returns (uint256) {
+        bool goalReached = goalReachedStrategy.isGoalReached();
+
+        /*
+            Set the status to Unclaimed so that the status doesn't depend on the balance anymore, and the refunds can
+            continue going through even if the balance drops below the goal.
+        */
+        if (status != Status.Unclaimed && _isUnclaimed(goalReached)) {
+            status = Status.Unclaimed;
+        }
+        uint256 refundAmount = getRefundAmount(contributor, processingFee);
+
+        return refundAmount;
+    }
+
     /**
      * @notice Refund the sender's contributions. Used to refund contributions directly on Rootstock.
      */
     function refund(uint256 processingFee) external {
-        uint256 refundAmount = getRefundAmount(msg.sender, processingFee);
+        /*
+            Set status to Unclaimed if contract is unclaimed but status has not been set to Unclaimed yet.
+            This ensures future refunds work even if balance drops below goal.
+        */
+        uint256 refundAmount = prepareRefund(msg.sender, processingFee);
 
         contributions[msg.sender] = 0;
         emit ContributionRefunded(msg.sender, refundAmount);
@@ -460,7 +497,7 @@ contract Aon is Initializable, Nonces {
         if (lockParams.claimAddress == address(0)) revert InvalidClaimAddress();
         if (lockParams.refundAddress == address(0)) revert InvalidRefundAddress();
 
-        uint256 refundAmount = getRefundAmount(contributor, processingFee);
+        uint256 refundAmount = prepareRefund(contributor, processingFee);
 
         verifyEIP712SignatureForRefund(
             contributor,
