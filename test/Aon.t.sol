@@ -904,7 +904,14 @@ contract AonTest is Test {
         bytes32 preimageHash = bytes32(0);
 
         bytes memory signature = _createRefundSignatureWithFeeAndRefundAddress(
-            contributor1, swapContract, expectedRefund, deadline, PROCESSING_FEE, preimageHash, address(0x456), contributor1PrivateKey
+            contributor1,
+            swapContract,
+            expectedRefund,
+            deadline,
+            PROCESSING_FEE,
+            preimageHash,
+            address(0x456),
+            contributor1PrivateKey
         );
 
         // Execute refund with signature
@@ -940,7 +947,9 @@ contract AonTest is Test {
         uint256 deadline,
         uint256 privateKey
     ) internal view returns (bytes memory) {
-        return _createRefundSignatureWithFeeAndRefundAddress(contributor, swapContract, amount, deadline, 0, bytes32(0), address(0x456), privateKey);
+        return _createRefundSignatureWithFeeAndRefundAddress(
+            contributor, swapContract, amount, deadline, 0, bytes32(0), address(0x456), privateKey
+        );
     }
 
     // Helper function to create refund signature with processing fee and preimage hash
