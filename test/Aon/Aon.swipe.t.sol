@@ -17,7 +17,7 @@ contract AonRefundTest is AonTestBase {
         Aon aonForTest = Aon(address(proxy));
         vm.prank(address(factory)); // Pretend the factory is deploying this Aon instance
         // Set swipeRecipient to attacker address so funds go there and trigger reentrancy
-        aonForTest.initialize(creator, GOAL, DURATION, address(goalReachedStrategy), 30 days, 30 days, feeRecipient);
+        aonForTest.initialize(creator, GOAL, DURATION, address(goalReachedStrategy), 30 days, 30 days);
 
         // 4. Link the attacker contract to the new Aon instance
         attacker.setAon(aonForTest);

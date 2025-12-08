@@ -63,8 +63,6 @@ contract Factory is Ownable {
         AonProxy proxy = new AonProxy(implementation);
         emit AonCreated(address(proxy));
         Aon(address(proxy))
-            .initialize(
-                creator, goalInEther, durationInSeconds, goalReachedStrategy, claimWindow, refundWindow, feeRecipient
-            );
+            .initialize(creator, goalInEther, durationInSeconds, goalReachedStrategy, claimWindow, refundWindow);
     }
 }

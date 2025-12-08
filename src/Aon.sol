@@ -152,7 +152,6 @@ contract Aon is Initializable, Nonces {
     */
     IFactory public factory;
     address payable public creator;
-    address payable public feeRecipient;
     uint256 public goal;
     uint256 public endTime;
     uint256 public totalCreatorFee;
@@ -179,8 +178,7 @@ contract Aon is Initializable, Nonces {
         uint32 _durationInSeconds,
         address _goalReachedStrategy,
         uint32 _claimWindow,
-        uint32 _refundWindow,
-        address payable _feeRecipient
+        uint32 _refundWindow
     ) public initializer {
         if (_goal == 0 ether) revert InvalidGoal();
         if (_durationInSeconds < 60 minutes) revert InvalidDuration();
@@ -190,7 +188,6 @@ contract Aon is Initializable, Nonces {
         if (_creator == address(0)) revert InvalidCreator();
 
         creator = _creator;
-        feeRecipient = _feeRecipient;
         goal = _goal;
         endTime = block.timestamp + _durationInSeconds;
         claimWindow = _claimWindow;

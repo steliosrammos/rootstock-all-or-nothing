@@ -64,7 +64,7 @@ abstract contract AonTestBase is Test {
 
         // Initialize contract via proxy
         vm.prank(factoryOwner);
-        aon.initialize(creator, GOAL, DURATION, address(goalReachedStrategy), 30 days, 30 days, feeRecipient);
+        aon.initialize(creator, GOAL, DURATION, address(goalReachedStrategy), 30 days, 30 days);
 
         vm.deal(contributor1, 100 ether);
         vm.deal(contributor2, 100 ether);
