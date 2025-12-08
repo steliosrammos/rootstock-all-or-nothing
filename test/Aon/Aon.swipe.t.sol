@@ -17,7 +17,16 @@ contract AonRefundTest is AonTestBase {
         Aon aonForTest = Aon(address(proxy));
         vm.prank(address(factory)); // Pretend the factory is deploying this Aon instance
         // Set swipeRecipient to attacker address so funds go there and trigger reentrancy
-        aonForTest.initialize(creator, GOAL, DURATION, address(goalReachedStrategy), 30 days, 30 days, feeRecipient, payable(address(attacker)));
+        aonForTest.initialize(
+            creator,
+            GOAL,
+            DURATION,
+            address(goalReachedStrategy),
+            30 days,
+            30 days,
+            feeRecipient,
+            payable(address(attacker))
+        );
 
         // 4. Link the attacker contract to the new Aon instance
         attacker.setAon(aonForTest);
@@ -63,10 +72,14 @@ contract AonRefundTest is AonTestBase {
 
         assertEq(address(aon).balance, 0, "Contract balance should be zero");
         assertEq(
-            feeRecipient.balance, feeRecipientInitialBalance + platformAmount, "Fee recipient should receive platform fees"
+            feeRecipient.balance,
+            feeRecipientInitialBalance + platformAmount,
+            "Fee recipient should receive platform fees"
         );
         assertEq(
-            swipeRecipient.balance, swipeRecipientInitialBalance + recipientAmount, "Swipe recipient should receive funds"
+            swipeRecipient.balance,
+            swipeRecipientInitialBalance + recipientAmount,
+            "Swipe recipient should receive funds"
         );
     }
 
@@ -91,10 +104,14 @@ contract AonRefundTest is AonTestBase {
 
         assertEq(address(aon).balance, 0, "Contract balance should be zero");
         assertEq(
-            feeRecipient.balance, feeRecipientInitialBalance + platformAmount, "Fee recipient should receive platform fees"
+            feeRecipient.balance,
+            feeRecipientInitialBalance + platformAmount,
+            "Fee recipient should receive platform fees"
         );
         assertEq(
-            swipeRecipient.balance, swipeRecipientInitialBalance + recipientAmount, "Swipe recipient should receive funds"
+            swipeRecipient.balance,
+            swipeRecipientInitialBalance + recipientAmount,
+            "Swipe recipient should receive funds"
         );
     }
 
