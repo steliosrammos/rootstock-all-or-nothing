@@ -230,6 +230,62 @@ contract AonRefundTest is AonTestBase {
         assertEq(aon.totalContributorFee(), contributorFeeAmount, "Total contributor fee should remain unchanged");
     }
 
+    function test_Refund_FailsIfClaimed() public {
+        vm.prank(contributor1);
+        aon.contribute{value: CONTRIBUTION_AMOUNT}(0, 0);
+        vm.prank(contributor2);
+        aon.contribute{value: GOAL - CONTRIBUTION_AMOUNT}(0, 0);
+        vm.warp(aon.endTime() + 1 days);
+        vm.prank(creator);
+        aon.claim(0);
+
+        vm.prank(contributor1);
+        vm.expectRevert(Aon.CannotRefundClaimedContract.selector);
+        aon.refund(0);
+    }
+
+    function test_Refund_SuccessWhenActiveBeforeGoalReached() public {
+        // Contribute but don't reach goal yet
+        vm.prank(contributor1);
+        aon.contribute{value: CONTRIBUTION_AMOUNT}(0, 0);
+
+        // Before end time, goal not reached - should be able to refund
+        uint256 contributorInitialBalance = contributor1.balance;
+        vm.prank(contributor1);
+        aon.refund(0);
+
+        assertEq(
+            contributor1.balance,
+            contributorInitialBalance + CONTRIBUTION_AMOUNT,
+            "Contributor should get money back even when active"
+        );
+        assertEq(aon.contributions(contributor1), 0, "Contribution record should be cleared");
+    }
+
+    function test_Refund_MultipleRefundsBySameContributor() public {
+        // Contribute multiple times
+        vm.prank(contributor1);
+        aon.contribute{value: 1 ether}(0, 0);
+        vm.prank(contributor1);
+        aon.contribute{value: 2 ether}(0, 0);
+
+        assertEq(aon.contributions(contributor1), 3 ether, "Total contribution should be 3 ether");
+
+        // Cancel to allow refund
+        vm.prank(creator);
+        aon.cancel();
+
+        // Refund should return all contributions
+        uint256 contributorInitialBalance = contributor1.balance;
+        vm.prank(contributor1);
+        aon.refund(0);
+
+        assertEq(
+            contributor1.balance, contributorInitialBalance + 3 ether, "Contributor should get all contributions back"
+        );
+        assertEq(aon.contributions(contributor1), 0, "Contribution record should be cleared");
+    }
+
     /*
     * REENTRANCY TESTS
     */

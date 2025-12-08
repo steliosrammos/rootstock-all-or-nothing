@@ -169,6 +169,89 @@ contract AonClaimTest is AonTestBase {
         aon.claim(0);
     }
 
+    function test_Claim_FailsIfAlreadyClaimed() public {
+        vm.prank(contributor1);
+        aon.contribute{value: GOAL}(0, 0);
+        vm.warp(aon.endTime() + 1 days);
+        vm.prank(creator);
+        aon.claim(0);
+
+        vm.prank(creator);
+        vm.expectRevert(Aon.AlreadyClaimed.selector);
+        aon.claim(0);
+    }
+
+    function test_Claim_FailsAfterClaimWindow() public {
+        vm.prank(contributor1);
+        aon.contribute{value: GOAL}(0, 0);
+        vm.warp(aon.endTime() + aon.claimWindow() + 1 days);
+
+        vm.prank(creator);
+        vm.expectRevert(Aon.CannotClaimAfterClaimWindow.selector);
+        aon.claim(0);
+    }
+
+    function test_Claim_WithCreatorFee_Success() public {
+        uint256 creatorFeeAmount = 0.5 ether;
+        vm.prank(contributor1);
+        aon.contribute{value: 5 ether}(creatorFeeAmount, 0);
+        vm.prank(contributor2);
+        aon.contribute{value: 5 ether}(creatorFeeAmount, 0);
+
+        vm.warp(aon.endTime() + 1 days);
+        assertTrue(aon.getStatus() == Aon.Status.Successful, "Campaign should be successful");
+
+        uint256 processingFee = 0;
+        uint256 creatorAmount = aon.claimableBalance() - processingFee;
+        uint256 totalFee = aon.totalCreatorFee() + aon.totalContributorFee() + processingFee;
+        uint256 creatorInitialBalance = creator.balance;
+        uint256 feeRecipientInitialBalance = feeRecipient.balance;
+
+        vm.startPrank(creator);
+        vm.expectEmit(true, true, false, true);
+        emit Claimed(creatorAmount, aon.totalCreatorFee() + processingFee, aon.totalContributorFee());
+        aon.claim(processingFee);
+        vm.stopPrank();
+
+        assertEq(address(aon).balance, 0, "Contract balance should be zero after claim");
+        assertEq(creator.balance, creatorInitialBalance + creatorAmount, "Creator should receive the funds");
+        assertEq(
+            feeRecipient.balance, feeRecipientInitialBalance + totalFee, "Fee recipient should receive creator fees"
+        );
+    }
+
+    function test_Claim_AtClaimWindowBoundary() public {
+        vm.prank(contributor1);
+        aon.contribute{value: GOAL}(0, 0);
+        vm.warp(aon.endTime() + aon.claimWindow());
+
+        // Should still be able to claim at the exact boundary
+        vm.prank(creator);
+        aon.claim(0);
+        assertEq(uint256(aon.status()), uint256(Aon.Status.Claimed), "Status should be Claimed");
+    }
+
+    function test_Claim_WithZeroClaimableBalance() public {
+        // Contribute exactly the goal amount with creator fees equal to the contribution
+        // This creates a scenario where claimableBalance might be 0
+        vm.prank(contributor1);
+        aon.contribute{value: GOAL}(GOAL, 0); // All goes to creator fee
+
+        vm.warp(aon.endTime() + 1 days);
+        assertEq(aon.claimableBalance(), 0, "Claimable balance should be zero");
+
+        uint256 creatorInitialBalance = creator.balance;
+        uint256 feeRecipientInitialBalance = feeRecipient.balance;
+
+        vm.prank(creator);
+        aon.claim(0);
+
+        // Creator should receive nothing, fee recipient should receive all
+        assertEq(creator.balance, creatorInitialBalance, "Creator should receive nothing");
+        assertEq(feeRecipient.balance, feeRecipientInitialBalance + GOAL, "Fee recipient should receive all funds");
+        assertEq(address(aon).balance, 0, "Contract balance should be zero");
+    }
+
     /*
     * CLAIM TO SWAP CONTRACT TESTS
     */

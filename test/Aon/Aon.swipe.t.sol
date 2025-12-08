@@ -264,4 +264,60 @@ contract AonRefundTest is AonTestBase {
             "Recipient should receive all funds when there are no platform fees"
         );
     }
+
+    function test_SwipeFunds_FailsIfClaimed() public {
+        vm.prank(contributor1);
+        aon.contribute{value: GOAL}(0, 0);
+        vm.warp(aon.endTime() + 1 days);
+        vm.prank(creator);
+        aon.claim(0);
+
+        // After claiming, balance is 0, so swipe will fail with NoFundsToSwipe
+        vm.warp(aon.endTime() + aon.claimWindow() + aon.refundWindow() + 1 days);
+        vm.prank(factoryOwner);
+        vm.expectRevert(Aon.NoFundsToSwipe.selector);
+        aon.swipeFunds();
+    }
+
+    function test_SwipeFunds_AtWindowBoundary() public {
+        vm.prank(contributor1);
+        aon.contribute{value: 1 ether}(0, 0);
+        vm.warp(aon.endTime() + aon.claimWindow() + aon.refundWindow());
+
+        // Should fail exactly at boundary (must be after)
+        vm.prank(factoryOwner);
+        vm.expectRevert(Aon.CannotSwipeFundsBeforeEndOfClaimOrRefundWindow.selector);
+        aon.swipeFunds();
+
+        // Should succeed 1 second after boundary
+        vm.warp(aon.endTime() + aon.claimWindow() + aon.refundWindow() + 1);
+        vm.prank(factoryOwner);
+        aon.swipeFunds();
+        assertEq(address(aon).balance, 0, "Contract balance should be zero");
+    }
+
+    function test_SwipeFunds_WithOnlyContributorFees() public {
+        uint256 contributorFee = 0.1 ether;
+        vm.prank(contributor1);
+        aon.contribute{value: 1 ether}(0, contributorFee);
+
+        vm.warp(aon.endTime() + aon.claimWindow() + aon.refundWindow() + 1 days);
+
+        uint256 feeRecipientInitialBalance = feeRecipient.balance;
+        uint256 swipeRecipientInitialBalance = swipeRecipient.balance;
+
+        vm.prank(factoryOwner);
+        aon.swipeFunds();
+
+        assertEq(
+            feeRecipient.balance,
+            feeRecipientInitialBalance + contributorFee,
+            "Fee recipient should receive contributor fees"
+        );
+        assertEq(
+            swipeRecipient.balance,
+            swipeRecipientInitialBalance + (1 ether - contributorFee),
+            "Swipe recipient should receive remaining funds"
+        );
+    }
 }

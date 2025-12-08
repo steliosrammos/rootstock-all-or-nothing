@@ -34,4 +34,29 @@ contract AonRefundTest is AonTestBase {
         vm.expectRevert(Aon.CannotCancelCancelledContract.selector);
         aon.cancel();
     }
+
+    function test_Cancel_FailsIfClaimed() public {
+        vm.prank(contributor1);
+        aon.contribute{value: GOAL}(0, 0);
+        vm.warp(aon.endTime() + 1 days);
+        vm.prank(creator);
+        aon.claim(0);
+
+        vm.prank(creator);
+        vm.expectRevert(Aon.CannotCancelClaimedContract.selector);
+        aon.cancel();
+    }
+
+    function test_Cancel_FailsIfFinalized() public {
+        vm.prank(contributor1);
+        aon.contribute{value: 1 ether}(0, 0);
+        vm.warp(aon.endTime() + 1 days);
+        vm.prank(contributor1);
+        aon.refund(0);
+        vm.warp(aon.endTime() + aon.claimWindow() + aon.refundWindow() + 1 days);
+
+        vm.prank(creator);
+        vm.expectRevert(Aon.CannotCancelFinalizedContract.selector);
+        aon.cancel();
+    }
 }
