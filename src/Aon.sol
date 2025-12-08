@@ -11,6 +11,10 @@ interface IOwnable {
     function owner() external view returns (address);
 }
 
+interface IFactory is IOwnable {
+    function swipeRecipient() external view returns (address payable);
+}
+
 /**
  * @title ISwapHTLC
  * @dev Interface for Boltz HTLC swap contracts
@@ -55,7 +59,7 @@ contract Aon is Initializable, Nonces {
     error InvalidGoalReachedStrategy();
     error InvalidCreator();
     error InvalidFeeRecipient();
-    error InvalidSwipeRecipient();
+
     /*
     * STATE ERRORS
     */
@@ -146,10 +150,9 @@ contract Aon is Initializable, Nonces {
     /*
     * STATE VARIABLES
     */
-    IOwnable public factory;
+    IFactory public factory;
     address payable public creator;
     address payable public feeRecipient;
-    address payable public swipeRecipient;
     uint256 public goal;
     uint256 public endTime;
     uint256 public totalCreatorFee;
@@ -177,8 +180,7 @@ contract Aon is Initializable, Nonces {
         address _goalReachedStrategy,
         uint32 _claimWindow,
         uint32 _refundWindow,
-        address payable _feeRecipient,
-        address payable _swipeRecipient
+        address payable _feeRecipient
     ) public initializer {
         if (_goal == 0 ether) revert InvalidGoal();
         if (_durationInSeconds < 60 minutes) revert InvalidDuration();
@@ -187,17 +189,15 @@ contract Aon is Initializable, Nonces {
         if (_goalReachedStrategy == address(0)) revert InvalidGoalReachedStrategy();
         if (_creator == address(0)) revert InvalidCreator();
         if (_feeRecipient == address(0)) revert InvalidFeeRecipient();
-        if (_swipeRecipient == address(0)) revert InvalidSwipeRecipient();
 
         creator = _creator;
+        feeRecipient = _feeRecipient;
         goal = _goal;
         endTime = block.timestamp + _durationInSeconds;
         claimWindow = _claimWindow;
         refundWindow = _refundWindow;
         goalReachedStrategy = IAonGoalReached(_goalReachedStrategy);
-        factory = IOwnable(msg.sender);
-        feeRecipient = _feeRecipient;
-        swipeRecipient = _swipeRecipient;
+        factory = IFactory(msg.sender);
 
         // -----------------------------------------------------------------
         // Build and cache the EIP-712 domain separator for this contract
@@ -628,6 +628,8 @@ contract Aon is Initializable, Nonces {
         // Send fees to fee recipient: both fees if unclaimed, otherwise only contributor fees
         uint256 fees = isUnclaimed() ? totalCreatorFee + totalContributorFee : totalContributorFee;
         uint256 recipientAmount = address(this).balance - fees;
+        address payable swipeRecipient = factory.swipeRecipient();
+
         emit FundsSwiped(swipeRecipient, fees, recipientAmount);
 
         if (fees > 0) {

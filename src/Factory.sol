@@ -9,18 +9,27 @@ contract Factory is Ownable {
     event AonCreated(address contractAddress);
 
     address public implementation;
+    address payable public swipeRecipient;
 
     error InvalidImplementation();
+    error InvalidSwipeRecipient();
     error InvalidOwner();
 
-    constructor(address _implementation, address _owner) Ownable(_owner) {
+    constructor(address _implementation, address payable _swipeRecipient, address _owner) Ownable(_owner) {
         if (_implementation == address(0)) revert InvalidImplementation();
+        if (_swipeRecipient == address(0)) revert InvalidSwipeRecipient();
         implementation = _implementation;
+        swipeRecipient = _swipeRecipient;
     }
 
     function setImplementation(address _implementation) public onlyOwner {
         if (_implementation == address(0)) revert InvalidImplementation();
         implementation = _implementation;
+    }
+
+    function setSwipeRecipient(address payable _swipeRecipient) public onlyOwner {
+        if (_swipeRecipient == address(0)) revert InvalidSwipeRecipient();
+        swipeRecipient = _swipeRecipient;
     }
 
     /**
@@ -31,7 +40,6 @@ contract Factory is Ownable {
      * @param goalReachedStrategy Address of the goal reached strategy contract.
      * @param claimWindow The time period (in seconds) after campaign end during which the creator can claim.
      * @param refundWindow The time period (in seconds) during which contributors can request refunds after the campaign ends or after the claim window.
-     * @param feeRecipient The address that will receive platform/processing fees (creator and contributor fees).
      */
     function create(
         address payable creator,
@@ -40,21 +48,13 @@ contract Factory is Ownable {
         address goalReachedStrategy,
         uint32 claimWindow,
         uint32 refundWindow,
-        address payable feeRecipient,
-        address payable swipeRecipient
+        address payable feeRecipient
     ) external {
         AonProxy proxy = new AonProxy(implementation);
         emit AonCreated(address(proxy));
         Aon(address(proxy))
             .initialize(
-                creator,
-                goalInEther,
-                durationInSeconds,
-                goalReachedStrategy,
-                claimWindow,
-                refundWindow,
-                feeRecipient,
-                swipeRecipient
+                creator, goalInEther, durationInSeconds, goalReachedStrategy, claimWindow, refundWindow, feeRecipient
             );
     }
 }

@@ -64,9 +64,7 @@ abstract contract AonTestBase is Test {
 
         // Initialize contract via proxy
         vm.prank(factoryOwner);
-        aon.initialize(
-            creator, GOAL, DURATION, address(goalReachedStrategy), 30 days, 30 days, feeRecipient, swipeRecipient
-        );
+        aon.initialize(creator, GOAL, DURATION, address(goalReachedStrategy), 30 days, 30 days, feeRecipient);
 
         vm.deal(contributor1, 100 ether);
         vm.deal(contributor2, 100 ether);
@@ -168,11 +166,14 @@ contract MaliciousRefund {
 
 /// @dev A mock factory used for the swipeFunds re-entrancy test.
 /// It allows us to set a malicious owner.
-contract MaliciousFactory is IOwnable {
+contract MaliciousFactory is IFactory {
     address public immutable override owner;
+    address payable public immutable override swipeRecipient;
 
     constructor(address _owner) {
         owner = _owner;
+        // Set swipeRecipient to the attacker so funds go there and trigger reentrancy
+        swipeRecipient = payable(_owner);
     }
 }
 
