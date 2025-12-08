@@ -445,10 +445,6 @@ contract Aon is Initializable, Nonces {
      * @notice Refund the sender's contributions. Used to refund contributions directly on Rootstock.
      */
     function refund(uint256 processingFee) external {
-        /*
-            Set status to Unclaimed if contract is unclaimed but status has not been set to Unclaimed yet.
-            This ensures future refunds work even if balance drops below goal.
-        */
         uint256 refundAmount = prepareRefund(msg.sender, processingFee);
 
         contributions[msg.sender] = 0;
