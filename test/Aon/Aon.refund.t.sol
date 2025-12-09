@@ -627,4 +627,47 @@ contract AonRefundTest is AonTestBase {
             })
         );
     }
+
+    function test_RefundToSwapContract_VerifiesParameterOrder() public {
+        vm.prank(contributor1);
+        aon.contribute{value: CONTRIBUTION_AMOUNT}(0, 0);
+        vm.prank(creator);
+        aon.cancel();
+
+        MockSwapHTLC mockSwap = new MockSwapHTLC();
+        bytes32 preimageHash = bytes32(uint256(0x5678));
+        address claimAddress = address(0x123);
+        address refundAddress = address(0x456);
+
+        bytes memory signature = _createRefundSignatureWithFeeAndRefundAddress(
+            contributor1,
+            address(mockSwap),
+            CONTRIBUTION_AMOUNT,
+            block.timestamp + 1 hours,
+            0,
+            preimageHash,
+            refundAddress,
+            contributor1PrivateKey
+        );
+
+        aon.refundToSwapContract(
+            contributor1,
+            ISwapHTLC(address(mockSwap)),
+            block.timestamp + 1 hours,
+            signature,
+            0,
+            Aon.SwapContractLockParams({
+                preimageHash: preimageHash,
+                claimAddress: claimAddress,
+                refundAddress: refundAddress,
+                timelock: 3600,
+                functionSignature: "lock(bytes32,address,address,uint256)"
+            })
+        );
+
+        assertEq(mockSwap.lastPreimageHash(), preimageHash, "Preimage hash should match");
+        assertEq(mockSwap.lastClaimAddress(), claimAddress, "Claim address should match");
+        assertEq(mockSwap.lastRefundAddress(), refundAddress, "Refund address should match");
+        assertEq(mockSwap.lastTimelock(), 3600, "Timelock should match");
+    }
 }

@@ -202,3 +202,24 @@ contract MaliciousFactory is IFactory {
         }
     }
 
+    /// @dev A mock swap contract that captures and stores the parameters passed to lock()
+    /// This allows tests to verify that parameters are passed in the correct order
+    contract MockSwapHTLC is ISwapHTLC {
+        bytes32 public lastPreimageHash;
+        address public lastClaimAddress;
+        address public lastRefundAddress;
+        uint256 public lastTimelock;
+        uint256 public totalReceived;
+
+        function lock(bytes32 preimageHash, address claimAddress, address refundAddress, uint256 timelock)
+            external
+            payable
+        {
+            lastPreimageHash = preimageHash;
+            lastClaimAddress = claimAddress;
+            lastRefundAddress = refundAddress;
+            lastTimelock = timelock;
+            totalReceived += msg.value;
+        }
+    }
+

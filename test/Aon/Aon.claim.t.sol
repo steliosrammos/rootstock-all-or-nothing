@@ -500,5 +500,66 @@ contract AonClaimTest is AonTestBase {
             })
         );
     }
+
+    function test_ClaimToSwapContract_VerifiesParameterOrder() public {
+        vm.prank(contributor1);
+        aon.contribute{value: GOAL}(0, 0);
+        vm.warp(aon.endTime() + 1 days);
+
+        MockSwapHTLC mockSwap = new MockSwapHTLC();
+        bytes32 preimageHash = bytes32(uint256(0x1234));
+        address claimAddress = address(0x456);
+        address refundAddress = address(0x789);
+
+        bytes memory signature = _createClaimSignature(
+            address(mockSwap), aon.claimableBalance(), block.timestamp + 1 hours, preimageHash, refundAddress
+        );
+
+        aon.claimToSwapContract(
+            ISwapHTLC(address(mockSwap)),
+            block.timestamp + 1 hours,
+            signature,
+            0,
+            Aon.SwapContractLockParams({
+                preimageHash: preimageHash,
+                claimAddress: claimAddress,
+                refundAddress: refundAddress,
+                timelock: 7200,
+                functionSignature: "lock(bytes32,address,address,uint256)"
+            })
+        );
+
+        assertEq(mockSwap.lastPreimageHash(), preimageHash, "Preimage hash should match");
+        assertEq(mockSwap.lastClaimAddress(), claimAddress, "Claim address should match");
+        assertEq(mockSwap.lastRefundAddress(), refundAddress, "Refund address should match");
+        assertEq(mockSwap.lastTimelock(), 7200, "Timelock should match");
+    }
+
+    function _createClaimSignature(
+        address swapContract,
+        uint256 amount,
+        uint256 deadline,
+        bytes32 preimageHash,
+        address refundAddress
+    ) internal view returns (bytes memory) {
+        bytes32 structHash = keccak256(
+            abi.encode(
+                keccak256(
+                    "Claim(address creator,address swapContract,uint256 amount,uint256 nonce,uint256 deadline,uint256 processingFee,bytes32 preimageHash,address refundAddress)"
+                ),
+                creator,
+                swapContract,
+                amount,
+                aon.nonces(creator),
+                deadline,
+                0,
+                preimageHash,
+                refundAddress
+            )
+        );
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", aon.domainSeparator(), structHash));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(creatorPrivateKey, digest);
+        return abi.encodePacked(r, s, v);
+    }
 }
 
