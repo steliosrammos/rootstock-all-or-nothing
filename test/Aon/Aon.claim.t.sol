@@ -232,13 +232,17 @@ contract AonClaimTest is AonTestBase {
     }
 
     function test_Claim_WithZeroClaimableBalance() public {
-        // Contribute exactly the goal amount with creator fees equal to the contribution
-        // This creates a scenario where claimableBalance might be 0
+        // Contribute with creator fees almost equal to the contribution
+        // This creates a scenario where claimableBalance is very small (near 0)
+        // We can't use GOAL as fee because fee must be < amount, so use GOAL - 1 wei
+        uint256 creatorFee = GOAL - 1;
         vm.prank(contributor1);
-        aon.contribute{value: GOAL}(GOAL, 0); // All goes to creator fee
+        aon.contribute{value: GOAL}(creatorFee, 0); // Almost all goes to creator fee
 
         vm.warp(aon.endTime() + 1 days);
-        assertEq(aon.claimableBalance(), 0, "Claimable balance should be zero");
+        // claimableBalance = address(this).balance - totalCreatorFee - totalContributorFee
+        // = GOAL - (GOAL - 1) - 0 = 1 wei
+        assertEq(aon.claimableBalance(), 1, "Claimable balance should be 1 wei");
 
         uint256 creatorInitialBalance = creator.balance;
         uint256 feeRecipientInitialBalance = feeRecipient.balance;
@@ -246,9 +250,11 @@ contract AonClaimTest is AonTestBase {
         vm.prank(creator);
         aon.claim(0);
 
-        // Creator should receive nothing, fee recipient should receive all
-        assertEq(creator.balance, creatorInitialBalance, "Creator should receive nothing");
-        assertEq(feeRecipient.balance, feeRecipientInitialBalance + GOAL, "Fee recipient should receive all funds");
+        // Creator should receive 1 wei, fee recipient should receive the creator fee
+        assertEq(creator.balance, creatorInitialBalance + 1, "Creator should receive 1 wei");
+        assertEq(
+            feeRecipient.balance, feeRecipientInitialBalance + creatorFee, "Fee recipient should receive creator fee"
+        );
         assertEq(address(aon).balance, 0, "Contract balance should be zero");
     }
 
@@ -560,6 +566,175 @@ contract AonClaimTest is AonTestBase {
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", aon.domainSeparator(), structHash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(creatorPrivateKey, digest);
         return abi.encodePacked(r, s, v);
+    }
+
+    /*
+    * PROCESSING FEE OVERFLOW PROTECTION TESTS
+    */
+
+    function test_Claim_FailsWhenProcessingFeeWouldOverflow() public {
+        // Set up campaign and reach goal with a large creator fee
+        uint256 nearMax = type(uint256).max - 1 ether;
+        uint256 largeValue = type(uint256).max - 0.5 ether; // Slightly less than max to avoid VM issues
+
+        // Give contributor1 enough ETH
+        vm.deal(contributor1, largeValue);
+
+        // Make a contribution with a large creator fee that brings totalCreatorFee close to max
+        vm.prank(contributor1);
+        aon.contribute{value: largeValue}(nearMax, 0);
+
+        vm.warp(aon.endTime() + 1 days);
+
+        // Now try to claim with a processing fee that would overflow
+        uint256 overflowProcessingFee = 2 ether;
+
+        vm.prank(creator);
+        vm.expectRevert(Aon.TotalCreatorFeeOverflow.selector);
+        aon.claim(overflowProcessingFee);
+    }
+
+    function test_Claim_SucceedsWhenProcessingFeeIsWithinSafeRange() public {
+        // Set up campaign and reach goal with a large creator fee
+        uint256 safeCreatorFee = type(uint256).max / 2;
+        uint256 largeValue = type(uint256).max - 0.5 ether; // Slightly less than max to avoid VM issues
+
+        // Give contributor1 enough ETH
+        vm.deal(contributor1, largeValue);
+
+        // Make a contribution with a large creator fee
+        vm.prank(contributor1);
+        aon.contribute{value: largeValue}(safeCreatorFee, 0);
+
+        vm.warp(aon.endTime() + 1 days);
+
+        // Claim with a processing fee that's within safe range
+        uint256 safeProcessingFee = 1 ether;
+
+        vm.prank(creator);
+        aon.claim(safeProcessingFee);
+
+        assertEq(aon.totalCreatorFee(), safeCreatorFee + safeProcessingFee, "Total creator fee should accumulate");
+    }
+
+    function test_ClaimToSwapContract_FailsWhenProcessingFeeWouldOverflow() public {
+        // Set up campaign and reach goal with a large creator fee
+        uint256 nearMax = type(uint256).max - 1 ether;
+        uint256 largeValue = type(uint256).max - 0.5 ether; // Slightly less than max to avoid VM issues
+
+        // Give contributor1 enough ETH
+        vm.deal(contributor1, largeValue);
+
+        // Make a contribution with a large creator fee
+        vm.prank(contributor1);
+        aon.contribute{value: largeValue}(nearMax, 0);
+
+        vm.warp(aon.endTime() + 1 days);
+
+        // Prepare claim to swap contract
+        address swapContract = address(0x456);
+        uint256 deadline = block.timestamp + 1 hours;
+        uint256 claimAmount = aon.claimableBalance();
+        uint256 overflowProcessingFee = 2 ether;
+
+        bytes32 preimageHash = bytes32(0);
+        bytes32 structHash = keccak256(
+            abi.encode(
+                keccak256(
+                    "Claim(address creator,address swapContract,uint256 amount,uint256 nonce,uint256 deadline,uint256 processingFee,bytes32 preimageHash,address refundAddress)"
+                ),
+                creator,
+                swapContract,
+                claimAmount,
+                aon.nonces(creator),
+                deadline,
+                overflowProcessingFee,
+                preimageHash,
+                address(0x789)
+            )
+        );
+
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", aon.domainSeparator(), structHash));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(creatorPrivateKey, digest);
+        bytes memory signature = abi.encodePacked(r, s, v);
+
+        vm.expectRevert(Aon.TotalCreatorFeeOverflow.selector);
+        aon.claimToSwapContract(
+            ISwapHTLC(swapContract),
+            deadline,
+            signature,
+            overflowProcessingFee,
+            Aon.SwapContractLockParams({
+                preimageHash: bytes32(0),
+                claimAddress: address(0x456),
+                refundAddress: address(0x789),
+                timelock: 7200,
+                functionSignature: "lock(bytes32,address,address,uint256)"
+            })
+        );
+    }
+
+    function test_ClaimToSwapContract_SucceedsWhenProcessingFeeIsWithinSafeRange() public {
+        // Set up campaign and reach goal with a large creator fee
+        // Use smaller but still large values to avoid VM issues
+        uint256 safeCreatorFee = 1000 ether;
+        uint256 largeValue = 2000 ether; // msg.value must be > safeCreatorFee
+
+        // Give contributor1 enough ETH
+        vm.deal(contributor1, largeValue);
+
+        // Make a contribution with a large creator fee
+        vm.prank(contributor1);
+        aon.contribute{value: largeValue}(safeCreatorFee, 0);
+
+        vm.warp(aon.endTime() + 1 days);
+
+        // Prepare claim to swap contract
+        address swapContract = address(0x456);
+        uint256 deadline = block.timestamp + 1 hours;
+        uint256 safeProcessingFee = 1 ether;
+
+        // claimableAmount is calculated AFTER processingFee is added to totalCreatorFee
+        // So we need to calculate: address(this).balance - (totalCreatorFee + processingFee) - totalContributorFee
+        uint256 claimAmount =
+            address(aon).balance - (aon.totalCreatorFee() + safeProcessingFee) - aon.totalContributorFee();
+
+        bytes32 preimageHash = bytes32(0);
+        bytes32 structHash = keccak256(
+            abi.encode(
+                keccak256(
+                    "Claim(address creator,address swapContract,uint256 amount,uint256 nonce,uint256 deadline,uint256 processingFee,bytes32 preimageHash,address refundAddress)"
+                ),
+                creator,
+                swapContract,
+                claimAmount,
+                aon.nonces(creator),
+                deadline,
+                safeProcessingFee,
+                preimageHash,
+                address(0x789)
+            )
+        );
+
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", aon.domainSeparator(), structHash));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(creatorPrivateKey, digest);
+        bytes memory signature = abi.encodePacked(r, s, v);
+
+        aon.claimToSwapContract(
+            ISwapHTLC(swapContract),
+            deadline,
+            signature,
+            safeProcessingFee,
+            Aon.SwapContractLockParams({
+                preimageHash: bytes32(0),
+                claimAddress: address(0x456),
+                refundAddress: address(0x789),
+                timelock: 7200,
+                functionSignature: "lock(bytes32,address,address,uint256)"
+            })
+        );
+
+        assertEq(aon.totalCreatorFee(), safeCreatorFee + safeProcessingFee, "Total creator fee should accumulate");
     }
 }
 

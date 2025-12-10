@@ -66,6 +66,7 @@ contract Aon is Initializable, Nonces {
     */
     // Contribute Errors
     error ContributorFeeCannotExceedContributionAmount();
+    error CreatorFeeCannotExceedContributionAmount();
     error CannotContributeToCancelledContract();
     error CannotContributeToClaimedContract();
     error CannotContributeToFinalizedContract();
@@ -85,6 +86,7 @@ contract Aon is Initializable, Nonces {
     error OnlyCreatorCanClaim();
     error FailedToSendFundsInClaim(bytes reason);
     error FailedToSendFeeRecipientAmount(bytes reason);
+    error TotalCreatorFeeOverflow();
 
     // Refund Errors
     error CannotRefundNonActiveContract();
@@ -365,7 +367,7 @@ contract Aon is Initializable, Nonces {
         return true;
     }
 
-    function isValidContribution(uint256 _amount, uint256 _contributorFee) public view {
+    function isValidContribution(uint256 _amount, uint256 _creatorFee, uint256 _contributorFee) public view {
         // slither-disable-next-line timestamp
         if (block.timestamp > endTime) revert CannotContributeAfterEndTime();
         if (isCancelled()) revert CannotContributeToCancelledContract();
@@ -373,6 +375,7 @@ contract Aon is Initializable, Nonces {
         if (isFinalized()) revert CannotContributeToFinalizedContract();
         if (_amount == 0) revert InvalidContribution();
         if (_contributorFee >= _amount) revert ContributorFeeCannotExceedContributionAmount();
+        if (_creatorFee >= _amount) revert CreatorFeeCannotExceedContributionAmount();
     }
 
     function isValidSwipe() public view {
@@ -403,10 +406,7 @@ contract Aon is Initializable, Nonces {
      *  can include fees like the payment processing fee, a platform tip, etc.
      */
     function contributeFor(address contributor, uint256 creatorFee, uint256 contributorFee) public payable {
-        isValidContribution(msg.value, contributorFee);
-
-        // IMPORTANT
-        // creatorFee is never validated. This allows me to send 1 wei to this function. uint256.max as creatorFee parameter and deadlock the entire contract
+        isValidContribution(msg.value, creatorFee, contributorFee);
 
         uint256 contributionAmount = msg.value - contributorFee;
         contributions[contributor] += contributionAmount;
@@ -543,7 +543,7 @@ contract Aon is Initializable, Nonces {
     }
 
     function claim(uint256 processingFee) external {
-        // processingFee also needs to be validated
+        if (processingFee > type(uint256).max - totalCreatorFee) revert TotalCreatorFeeOverflow();
         totalCreatorFee += processingFee;
         uint256 creatorAmount = canClaim(msg.sender);
         status = Status.Claimed;
@@ -584,17 +584,13 @@ contract Aon is Initializable, Nonces {
         uint256 processingFee,
         SwapContractLockParams calldata lockParams
     ) external {
-        // Modifying state before doing checks is bad practice. Makes failed transactions more expensive for no reason
-        // 1. Checks
-        // 2. Effects
-        // 3. Interactions
-        totalCreatorFee += processingFee;
-
         if (block.timestamp > deadline) revert SignatureExpired();
         if (address(swapContract) == address(0)) revert InvalidSwapContract();
         if (lockParams.claimAddress == address(0)) revert InvalidClaimAddress();
         if (lockParams.refundAddress == address(0)) revert InvalidRefundAddress();
+        if (processingFee > type(uint256).max - totalCreatorFee) revert TotalCreatorFeeOverflow();
 
+        totalCreatorFee += processingFee;
         isValidClaim();
         uint256 claimableAmount = claimableBalance();
 
