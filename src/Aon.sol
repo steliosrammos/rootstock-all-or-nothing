@@ -219,14 +219,6 @@ contract Aon is Initializable, Nonces {
         return address(this).balance - totalContributorFee;
     }
 
-    /// @notice Returns the goal balance and target goal in a single call.
-    /// @dev Used by goal reached strategies to minimize external calls.
-    /// @return currentBalance The current balance counting towards the goal.
-    /// @return targetGoal The target goal amount.
-    function getGoalInfo() external view returns (uint256 currentBalance, uint256 targetGoal) {
-        return (goalBalance(), goal);
-    }
-
     /// @notice Returns the amount of funds available for the creator to claim.
     function claimableBalance() public view returns (uint256) {
         return address(this).balance - totalCreatorFee - totalContributorFee;

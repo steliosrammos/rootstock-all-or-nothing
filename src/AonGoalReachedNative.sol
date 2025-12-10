@@ -6,13 +6,14 @@ interface IAonGoalReached {
 }
 
 interface IAon {
-    // This function imho absolutely pointless and will come to haunt you in case you ever want to do more sophisticated goals
-    function getGoalInfo() external view returns (uint256 goalBalance, uint256 targetGoal);
+    function goalBalance() external view returns (uint256);
+    function goal() external view returns (uint256);
 }
 
 contract AonGoalReachedNative is IAonGoalReached {
     function isGoalReached() external view returns (bool) {
-        (uint256 goalBalance, uint256 targetGoal) = IAon(msg.sender).getGoalInfo();
+        uint256 goalBalance = IAon(msg.sender).goalBalance();
+        uint256 targetGoal = IAon(msg.sender).goal();
         return goalBalance >= targetGoal;
     }
 }
