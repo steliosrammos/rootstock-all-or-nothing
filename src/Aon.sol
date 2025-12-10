@@ -257,6 +257,7 @@ contract Aon is Initializable, Nonces {
 
     // slither-disable-next-line timestamp
     function isUnclaimed() public view returns (bool) {
+        // This is HORRIBLE. Why would you check status === Status.Unclaimed twice?
         // Check stored status first - if already set to Unclaimed, return true
         if (status == Status.Unclaimed) return true;
 
@@ -412,6 +413,9 @@ contract Aon is Initializable, Nonces {
     function contributeFor(address contributor, uint256 creatorFee, uint256 contributorFee) public payable {
         isValidContribution(msg.value, contributorFee);
 
+        // IMPORTANT
+        // creatorFee is never validated. This allows me to send 1 wei to this function. uint256.max as creatorFee parameter and deadlock the entire contract
+
         uint256 contributionAmount = msg.value - contributorFee;
         contributions[contributor] += contributionAmount;
         totalCreatorFee += creatorFee;
@@ -430,6 +434,7 @@ contract Aon is Initializable, Nonces {
     function prepareRefund(address contributor, uint256 processingFee) internal returns (uint256) {
         bool goalReached = goalReachedStrategy.isGoalReached();
 
+        // Is this needed? Would _isUnclaimed by itself not be sufficient?
         /*
             Set the status to Unclaimed so that the status doesn't depend on the balance anymore, and the refunds can
             continue going through even if the balance drops below the goal.
@@ -494,6 +499,9 @@ contract Aon is Initializable, Nonces {
 
         uint256 refundAmount = prepareRefund(contributor, processingFee);
 
+        // IMPORTANT
+        // Also needs to include the function signature
+        // Worth considering that all parameters (or their hash) are included in the signature to avoid frontrunning to troll and lock funds we won't accept
         verifyEIP712SignatureForRefund(
             contributor,
             swapContract,
@@ -543,6 +551,7 @@ contract Aon is Initializable, Nonces {
     }
 
     function claim(uint256 processingFee) external {
+        // processingFee also needs to be validated
         totalCreatorFee += processingFee;
         uint256 creatorAmount = canClaim(msg.sender);
         status = Status.Claimed;
@@ -583,6 +592,10 @@ contract Aon is Initializable, Nonces {
         uint256 processingFee,
         SwapContractLockParams calldata lockParams
     ) external {
+        // Modifying state before doing checks is bad practice. Makes failed transactions more expensive for no reason
+        // 1. Checks
+        // 2. Effects
+        // 3. Interactions
         totalCreatorFee += processingFee;
 
         if (block.timestamp > deadline) revert SignatureExpired();
@@ -593,6 +606,8 @@ contract Aon is Initializable, Nonces {
         isValidClaim();
         uint256 claimableAmount = claimableBalance();
 
+        // IMPORTANT
+        // Also needs to include the function signature
         verifyEIP712SignatureForClaim(
             swapContract,
             claimableAmount,
@@ -616,6 +631,9 @@ contract Aon is Initializable, Nonces {
     }
 
     function swipeFunds() public {
+        // OnlyFactoryCanSwipeFunds can be removed if you want everyone to be able to swipe
+        // There are  bunch of unused errors
+        // The inconsistency of those "isSmthg" functions that sometimes return a bool but also revert is beyond me but alright
         isValidSwipe();
 
         // Send fees to fee recipient: both fees if unclaimed, otherwise only contributor fees

@@ -6,6 +6,7 @@ interface IAonGoalReached {
 }
 
 interface IAon {
+    // This function imho absolutely pointless and will come to haunt you in case you ever want to do more sophisticated goals
     function getGoalInfo() external view returns (uint256 goalBalance, uint256 targetGoal);
 }
 
