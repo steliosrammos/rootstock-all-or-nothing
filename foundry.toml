@@ -4,7 +4,7 @@ out = "out"
 libs = ["lib"]
 gas_reports = ["*"]
 gas_reports_ignore = ["test/**", "script/**"]
-
+evm_version = "istanbul"
 
 [profile.ci]
 src = "src"
@@ -24,4 +24,6 @@ libs = ["lib"]
 fuzz = { runs = 1000 }
 invariant = { runs = 10, depth = 15 }
 
-# See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
+[profile.release]
+optimizer = true
+optimizer_runs = 10_000_000
