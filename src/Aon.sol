@@ -11,6 +11,11 @@ interface IOwnable {
     function owner() external view returns (address);
 }
 
+interface IFactory is IOwnable {
+    function swipeRecipient() external view returns (address payable);
+    function feeRecipient() external view returns (address payable);
+}
+
 /**
  * @title ISwapHTLC
  * @dev Interface for Boltz HTLC swap contracts
@@ -22,10 +27,11 @@ interface ISwapHTLC {
      * @notice Locks funds in the swap contract with the specified parameters
      * @param preimageHash The hash of the preimage that will unlock the funds
      * @param claimAddress The address that can claim the locked funds
+     * @param refundAddress The address that can refund the locked funds
      * @param timelock The timelock value in seconds
      * @dev This function should be payable to receive the locked funds
      */
-    function lock(bytes32 preimageHash, address claimAddress, uint256 timelock) external payable;
+    function lock(bytes32 preimageHash, address claimAddress, address refundAddress, uint256 timelock) external payable;
 }
 
 contract Aon is Initializable, Nonces {
@@ -35,7 +41,7 @@ contract Aon is Initializable, Nonces {
     // Contract events
     event Claimed(uint256 creatorAmount, uint256 creatorFeeAmount, uint256 contributorFeeAmount);
     event Cancelled();
-    event FundsSwiped();
+    event FundsSwiped(address recipient, uint256 feeRecipientAmount, uint256 recipientAmount);
 
     // Contribution events
     event ContributionRefunded(address indexed contributor, uint256 amount);
@@ -50,7 +56,8 @@ contract Aon is Initializable, Nonces {
     // Initialization validation errors
     error InvalidGoal();
     error InvalidDuration();
-    error InvalidClaimOrRefundWindow();
+    error InvalidClaimWindow();
+    error InvalidRefundWindow();
     error InvalidGoalReachedStrategy();
     error InvalidCreator();
 
@@ -74,10 +81,10 @@ contract Aon is Initializable, Nonces {
     error CannotClaimCancelledContract();
     error CannotClaimClaimedContract();
     error CannotClaimFailedContract();
-    error CannotClaimUnclaimedContract();
+    error CannotClaimAfterClaimWindow();
     error OnlyCreatorCanClaim();
     error FailedToSendFundsInClaim(bytes reason);
-    error FailedToSendPlatformAmount(bytes reason);
+    error FailedToSendFeeRecipientAmount(bytes reason);
 
     // Refund Errors
     error CannotRefundNonActiveContract();
@@ -104,14 +111,24 @@ contract Aon is Initializable, Nonces {
     error InvalidClaimAddress();
     error InvalidRefundAddress();
 
+    // Structs
+    struct SwapContractLockParams {
+        string functionSignature;
+        bytes32 preimageHash;
+        address claimAddress;
+        address refundAddress;
+        uint256 timelock;
+    }
+
     // Status enum
     enum Status {
-        Active, // 0 - Default active state
-        Cancelled, // 1 - Campaign cancelled
+        Active, // 0 - Campaign running, accepting contributions
+        Cancelled, // 1 - Campaign cancelled by creator/admin
         Claimed, // 2 - Funds claimed by creator
-        Successful, // 3 - Goal reached and claim window expired
+        Successful, // 3 - Goal reached, within claim window, can be claimed
         Failed, // 4 - Time expired without reaching goal
-        Finalized // 5 - All operations complete, contract can be cleaned up
+        Unclaimed, // 5 - Goal reached but creator didn't claim in time
+        Finalized // 6 - Contract empty, all windows expired, no actions possible
     }
 
     // ---------------------------------------------------------------------
@@ -121,10 +138,12 @@ contract Aon is Initializable, Nonces {
     // solhint-disable-next-line max-line-length
     bytes32 private constant _EIP712_DOMAIN_TYPEHASH =
         keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
-    bytes32 private constant _REFUND_TO_SWAP_CONTRACT_TYPEHASH =
-        keccak256("Refund(address contributor,address swapContract,uint256 amount,uint256 nonce,uint256 deadline)");
-    bytes32 private constant _CLAIM_TO_SWAP_CONTRACT_TYPEHASH =
-        keccak256("Claim(address creator,address swapContract,uint256 amount,uint256 nonce,uint256 deadline)");
+    bytes32 private constant _REFUND_TO_SWAP_CONTRACT_TYPEHASH = keccak256(
+        "Refund(address contributor,address swapContract,uint256 amount,uint256 nonce,uint256 deadline,uint256 processingFee,bytes32 preimageHash,address refundAddress)"
+    );
+    bytes32 private constant _CLAIM_TO_SWAP_CONTRACT_TYPEHASH = keccak256(
+        "Claim(address creator,address swapContract,uint256 amount,uint256 nonce,uint256 deadline,uint256 processingFee,bytes32 preimageHash,address refundAddress)"
+    );
 
     // Cached domain separator built in `initialize`
     bytes32 private _DOMAIN_SEPARATOR;
@@ -132,22 +151,22 @@ contract Aon is Initializable, Nonces {
     /*
     * STATE VARIABLES
     */
-    IOwnable public factory;
+    IFactory public factory;
     address payable public creator;
     uint256 public goal;
     uint256 public endTime;
     uint256 public totalCreatorFee;
-    uint256 public totalContributorFee;
-    uint256 public claimOrRefundWindow;
 
+    uint256 public totalContributorFee;
+    uint32 public claimWindow;
+    uint32 public refundWindow;
+    uint8 public constant VERSION = 1;
     /*
-    * The status is only updated to Active, Cancelled or Claimed, other statuses are derived from contract state
+    * The status is only updated to Active, Claimed or Cancelled, other statuses are derived from contract state
     */
     Status public status = Status.Active;
     mapping(address => uint256) public contributions;
     IAonGoalReached public goalReachedStrategy;
-
-    uint8 public constant VERSION = 1;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -157,24 +176,25 @@ contract Aon is Initializable, Nonces {
     function initialize(
         address payable _creator,
         uint256 _goal,
-        uint256 _durationInSeconds,
+        uint32 _durationInSeconds,
         address _goalReachedStrategy,
-        uint256 _claimOrRefundWindow
+        uint32 _claimWindow,
+        uint32 _refundWindow
     ) public initializer {
-        // Validate input parameters to prevent malicious campaigns
-        // Minimum goal: 0.001 ETH (to prevent dust attacks)
         if (_goal == 0 ether) revert InvalidGoal();
         if (_durationInSeconds < 60 minutes) revert InvalidDuration();
-        if (_claimOrRefundWindow < 60 minutes) revert InvalidClaimOrRefundWindow();
+        if (_claimWindow < 60 minutes) revert InvalidClaimWindow();
+        if (_refundWindow < 60 minutes) revert InvalidRefundWindow();
         if (_goalReachedStrategy == address(0)) revert InvalidGoalReachedStrategy();
         if (_creator == address(0)) revert InvalidCreator();
 
         creator = _creator;
         goal = _goal;
         endTime = block.timestamp + _durationInSeconds;
-        claimOrRefundWindow = _claimOrRefundWindow;
+        claimWindow = _claimWindow;
+        refundWindow = _refundWindow;
         goalReachedStrategy = IAonGoalReached(_goalReachedStrategy);
-        factory = IOwnable(msg.sender);
+        factory = IFactory(msg.sender);
 
         // -----------------------------------------------------------------
         // Build and cache the EIP-712 domain separator for this contract
@@ -195,8 +215,16 @@ contract Aon is Initializable, Nonces {
         return _DOMAIN_SEPARATOR;
     }
 
-    function goalBalance() external view returns (uint256) {
+    function goalBalance() public view returns (uint256) {
         return address(this).balance - totalContributorFee;
+    }
+
+    /// @notice Returns the goal balance and target goal in a single call.
+    /// @dev Used by goal reached strategies to minimize external calls.
+    /// @return currentBalance The current balance counting towards the goal.
+    /// @return targetGoal The target goal amount.
+    function getGoalInfo() external view returns (uint256 currentBalance, uint256 targetGoal) {
+        return (goalBalance(), goal);
     }
 
     /// @notice Returns the amount of funds available for the creator to claim.
@@ -204,17 +232,19 @@ contract Aon is Initializable, Nonces {
         return address(this).balance - totalCreatorFee - totalContributorFee;
     }
 
-    /// @notice Returns true if the address is the creator of the AON campaign.
-    function isCreator(address _address) public view returns (bool) {
-        return _address == creator;
-    }
-
     /*
     * Derived State Functions
     */
+
+    /**
+     * @notice Returns true if the contract is finalized.
+     * @dev The contract is finalized if the balance is 0, the deadline is reached and both the claim and refund windows have expired.
+     *  (ie: the contract has been claimed, fully refunded or swiped)
+     * @return true if the contract is finalized, false otherwise.
+     */
     function isFinalized() internal view returns (bool) {
         // slither-disable-next-line timestamp
-        return (address(this).balance <= 1 wei && block.timestamp > (endTime + claimOrRefundWindow * 2));
+        return (address(this).balance == 0 && block.timestamp > (endTime + claimWindow + refundWindow));
     }
 
     function isCancelled() internal view returns (bool) {
@@ -227,77 +257,106 @@ contract Aon is Initializable, Nonces {
 
     // slither-disable-next-line timestamp
     function isUnclaimed() public view returns (bool) {
+        // Check stored status first - if already set to Unclaimed, return true
+        if (status == Status.Unclaimed) return true;
+
+        // Otherwise derive from current state
+        return _isUnclaimed(goalReachedStrategy.isGoalReached());
+    }
+
+    /// @dev Internal version that accepts cached goalReached value to avoid redundant external calls
+    // slither-disable-next-line timestamp
+    function _isUnclaimed(bool goalReached) internal view returns (bool) {
         // slither-disable-next-line timestamp
-        return (block.timestamp > endTime + claimOrRefundWindow && goalReachedStrategy.isGoalReached());
+        return status == Status.Unclaimed || (block.timestamp > endTime + claimWindow && goalReached);
     }
 
     // slither-disable-next-line timestamp
-    function isFailed() public view returns (bool) {
-        // slither-disable-next-line timestamp
-        return (block.timestamp > endTime && !goalReachedStrategy.isGoalReached());
+    function isFailed() internal view returns (bool) {
+        return _isFailed(goalReachedStrategy.isGoalReached());
     }
 
-    function isSuccessful() public view returns (bool) {
-        return (!isCancelled() && goalReachedStrategy.isGoalReached());
+    /// @dev Internal version that accepts cached goalReached value to avoid redundant external calls
+    // slither-disable-next-line timestamp
+    function _isFailed(bool goalReached) internal view returns (bool) {
+        // slither-disable-next-line timestamp
+        return (block.timestamp > endTime && !goalReached);
     }
 
     /// @notice Returns the derived status of the contract. Meant for external use (eg: showing status in UIs).
     function getStatus() external view returns (Status) {
-        if (status == Status.Active) {
-            if (isFailed()) return Status.Failed;
-            if (isSuccessful()) return Status.Successful;
-            return Status.Active;
-        }
+        // Finalized: contract empty and all windows expired - no actions possible
         if (isFinalized()) return Status.Finalized;
-        if (isClaimed()) return Status.Claimed;
-        if (isCancelled()) return Status.Cancelled;
 
-        return status;
+        // Check stored terminal states
+        if (isCancelled()) return Status.Cancelled;
+        if (isClaimed()) return Status.Claimed;
+
+        // Active - derive actual state from goal and time
+        bool goalReached = goalReachedStrategy.isGoalReached();
+
+        if (_isUnclaimed(goalReached)) return Status.Unclaimed;
+        if (_isFailed(goalReached)) return Status.Failed;
+
+        if (goalReached) return Status.Successful;
+
+        return Status.Active;
     }
 
     /*
     * Validation Functions
     */
-    function isValidRefund(address contributor, uint256 processingFee) public view returns (uint256, uint256) {
+    function getRefundAmount(address contributor, uint256 processingFee) public view returns (uint256) {
+        if (isClaimed()) revert CannotRefundClaimedContract();
+
+        bool goalReached = goalReachedStrategy.isGoalReached();
+
         uint256 refundAmount = contributions[contributor];
         if (refundAmount <= 0) revert CannotRefundZeroContribution();
         if (processingFee > refundAmount) revert ProcessingFeeHigherThanRefundAmount(refundAmount, processingFee);
 
         refundAmount -= processingFee;
 
-        if (isClaimed()) revert CannotRefundClaimedContract();
+        uint256 _goalBalance = goalBalance();
 
-        uint256 balance = address(this).balance;
-
-        if (goalReachedStrategy.isGoalReached() && !isUnclaimed() && balance - refundAmount < goal) {
-            revert InsufficientBalanceForRefund(balance, refundAmount, goal);
+        /*
+            A refund  can be claimed before the goal is reached, or if the refund would not cause the balance to drop
+            below the goal (unless the contract is unclaimed).
+        */
+        if (goalReached && _goalBalance - refundAmount < goal && !_isUnclaimed(goalReached)) {
+            revert InsufficientBalanceForRefund(_goalBalance, refundAmount, goal);
         }
 
-        uint256 nonce = nonces(contributor);
-
-        if (isCancelled() || isFailed() || isUnclaimed() || !goalReachedStrategy.isGoalReached()) {
-            return (refundAmount, nonce);
+        if (isCancelled() || _isFailed(goalReached) || _isUnclaimed(goalReached) || !goalReached) {
+            return refundAmount;
         }
 
-        return (0, nonce);
+        return 0;
     }
 
     function isValidClaim() private view {
         if (isCancelled()) revert CannotClaimCancelledContract();
         if (isClaimed()) revert AlreadyClaimed();
-        if (isFailed()) revert CannotClaimFailedContract();
-        if (isUnclaimed()) revert CannotClaimUnclaimedContract();
-        if (!goalReachedStrategy.isGoalReached()) revert GoalNotReached();
+
+        // Cache the external call result to avoid multiple expensive calls
+        bool goalReached = goalReachedStrategy.isGoalReached();
+
+        if (_isFailed(goalReached)) revert CannotClaimFailedContract();
+        if (block.timestamp > endTime + claimWindow) revert CannotClaimAfterClaimWindow();
+        if (!goalReached) revert GoalNotReached();
     }
 
-    function canClaim(address _address) public view returns (uint256, uint256) {
-        if (!isCreator(_address)) revert OnlyCreatorCanClaim();
+    function canClaim(address _address) public view returns (uint256) {
+        if (_address != creator) revert OnlyCreatorCanClaim();
         isValidClaim();
 
-        uint256 nonce = nonces(_address);
         uint256 creatorAmount = claimableBalance();
 
-        return (creatorAmount, nonce);
+        return creatorAmount;
+    }
+
+    function getNonce(address _address) external view returns (uint256) {
+        return nonces(_address);
     }
 
     function canCancel() public view returns (bool) {
@@ -306,7 +365,7 @@ contract Aon is Initializable, Nonces {
         if (isFinalized()) revert CannotCancelFinalizedContract();
 
         bool isFactoryCall = msg.sender == factory.owner();
-        bool isCreatorCall = isCreator(msg.sender);
+        bool isCreatorCall = msg.sender == creator;
 
         if (!isFactoryCall && !isCreatorCall) revert OnlyCreatorOrFactoryOwnerCanCancel();
 
@@ -323,21 +382,17 @@ contract Aon is Initializable, Nonces {
         if (_contributorFee >= _amount) revert ContributorFeeCannotExceedContributionAmount();
     }
 
-    function isValidSwipe() public view returns (bool) {
-        if (msg.sender != factory.owner()) revert OnlyFactoryCanSwipeFunds();
-
-        /*
-            We take the claim/refund twice as the max delay, in case the funds were not claimed by the creator
-            (claim window) and then some funds were not refunded (refund window).
-        */
+    function isValidSwipe() public view {
         // slither-disable-next-line timestamp
-        if (block.timestamp <= endTime + claimOrRefundWindow * 2) {
+        /*
+         Swiping funds is only allowed after both the claim and refund windows have expired.
+         This is to give ample time for the creator or contributors to get their funds.
+        */
+        if (block.timestamp <= endTime + claimWindow + refundWindow) {
             revert CannotSwipeFundsBeforeEndOfClaimOrRefundWindow();
         }
 
-        if (address(this).balance <= 1 wei) revert NoFundsToSwipe();
-
-        return true;
+        if (address(this).balance == 0) revert NoFundsToSwipe();
     }
 
     /*
@@ -372,21 +427,42 @@ contract Aon is Initializable, Nonces {
         contributeFor(msg.sender, fee, tip);
     }
 
+    function prepareRefund(address contributor, uint256 processingFee) internal returns (uint256) {
+        bool goalReached = goalReachedStrategy.isGoalReached();
+
+        /*
+            Set the status to Unclaimed so that the status doesn't depend on the balance anymore, and the refunds can
+            continue going through even if the balance drops below the goal.
+        */
+        if (status != Status.Unclaimed && _isUnclaimed(goalReached)) {
+            status = Status.Unclaimed;
+        }
+        uint256 refundAmount = getRefundAmount(contributor, processingFee);
+
+        return refundAmount;
+    }
+
     /**
      * @notice Refund the sender's contributions. Used to refund contributions directly on Rootstock.
      */
     function refund(uint256 processingFee) external {
-        (uint256 refundAmount,) = isValidRefund(msg.sender, processingFee);
-
-        totalContributorFee += processingFee;
+        uint256 refundAmount = prepareRefund(msg.sender, processingFee);
 
         contributions[msg.sender] = 0;
         emit ContributionRefunded(msg.sender, refundAmount);
 
+        // Send processing fee to fee recipient
+        if (processingFee > 0) {
+            (bool success, bytes memory reason) = factory.feeRecipient().call{value: processingFee}("");
+            require(success, FailedToSendFeeRecipientAmount(reason));
+        }
+
         // We refund the contributor
         // slither-disable-next-line low-level-calls
-        (bool success, bytes memory reason) = msg.sender.call{value: refundAmount}("");
-        require(success, FailedToRefund(reason));
+        if (refundAmount > 0) {
+            (bool success, bytes memory reason) = msg.sender.call{value: refundAmount}("");
+            require(success, FailedToRefund(reason));
+        }
     }
 
     /**
@@ -400,62 +476,75 @@ contract Aon is Initializable, Nonces {
      * @param deadline    Timestamp after which the signature is no longer
      *                    valid.
      * @param signature   The EIP-712 signature bytes.
-     * @param preimageHash The preimage hash for the lock.
-     * @param claimAddress The address that can claim the locked funds.
-     * @param refundAddress The address that can refund the locked funds.
-     * @param timelock     The timelock value for the lock.
      * @param processingFee The fee for the processing of the refund.
+     * @param lockParams  Struct containing swap contract lock parameters.
      */
     function refundToSwapContract(
         address contributor,
         ISwapHTLC swapContract,
         uint256 deadline,
         bytes calldata signature,
-        bytes32 preimageHash,
-        address claimAddress,
-        address refundAddress,
-        uint256 timelock,
-        uint256 processingFee
+        uint256 processingFee,
+        SwapContractLockParams calldata lockParams
     ) external {
         if (block.timestamp > deadline) revert SignatureExpired();
         if (address(swapContract) == address(0)) revert InvalidSwapContract();
-        if (claimAddress == address(0)) revert InvalidClaimAddress();
-        if (refundAddress == address(0)) revert InvalidRefundAddress();
+        if (lockParams.claimAddress == address(0)) revert InvalidClaimAddress();
+        if (lockParams.refundAddress == address(0)) revert InvalidRefundAddress();
 
-        (uint256 refundAmount, uint256 nonce) = isValidRefund(contributor, processingFee);
+        uint256 refundAmount = prepareRefund(contributor, processingFee);
 
-        // -----------------------------------------------------------------
-        // Verify EIP-712 signature
-        // -----------------------------------------------------------------
-        verifyEIP712SignatureForRefund(contributor, swapContract, refundAmount, nonce, deadline, signature);
-
-        totalContributorFee += processingFee;
-
-        executeRefundToSwapContract(
-            contributor, swapContract, refundAmount, preimageHash, claimAddress, refundAddress, timelock
+        verifyEIP712SignatureForRefund(
+            contributor,
+            swapContract,
+            refundAmount,
+            deadline,
+            processingFee,
+            lockParams.preimageHash,
+            lockParams.refundAddress,
+            signature
         );
+
+        contributions[contributor] = 0;
+        emit ContributionRefunded(contributor, refundAmount);
+
+        sendFundsToSwapContract(swapContract, refundAmount, processingFee, lockParams);
     }
 
     function verifyEIP712SignatureForRefund(
         address contributor,
         ISwapHTLC swapContract,
         uint256 refundAmount,
-        uint256 nonce,
         uint256 deadline,
+        uint256 processingFee,
+        bytes32 preimageHash,
+        address refundAddress,
         bytes calldata signature
-    ) private view {
+    ) private {
+        uint256 nonce = nonces(contributor);
         bytes32 structHash = keccak256(
-            abi.encode(_REFUND_TO_SWAP_CONTRACT_TYPEHASH, contributor, swapContract, refundAmount, nonce, deadline)
+            abi.encode(
+                _REFUND_TO_SWAP_CONTRACT_TYPEHASH,
+                contributor,
+                swapContract,
+                refundAmount,
+                nonce,
+                deadline,
+                processingFee,
+                preimageHash,
+                refundAddress
+            )
         );
         bytes32 digest = MessageHashUtils.toTypedDataHash(_DOMAIN_SEPARATOR, structHash);
         address signer = ECDSA.recover(digest, signature);
 
         require(signer == contributor, InvalidSignature());
+        _useNonce(contributor);
     }
 
     function claim(uint256 processingFee) external {
         totalCreatorFee += processingFee;
-        (uint256 creatorAmount,) = canClaim(msg.sender);
+        uint256 creatorAmount = canClaim(msg.sender);
         status = Status.Claimed;
 
         emit Claimed(creatorAmount, totalCreatorFee, totalContributorFee);
@@ -464,8 +553,8 @@ contract Aon is Initializable, Nonces {
         uint256 totalPlatformAmount = totalCreatorFee + totalContributorFee;
         if (totalPlatformAmount > 0) {
             // slither-disable-next-line low-level-calls
-            (bool success, bytes memory reason) = factory.owner().call{value: totalPlatformAmount}("");
-            require(success, FailedToSendPlatformAmount(reason));
+            (bool success, bytes memory reason) = factory.feeRecipient().call{value: totalPlatformAmount}("");
+            require(success, FailedToSendFeeRecipientAmount(reason));
         }
 
         // Send remaining funds to creator
@@ -484,35 +573,40 @@ contract Aon is Initializable, Nonces {
      * @param deadline    Timestamp after which the signature is no longer
      *                    valid.
      * @param signature   The EIP-712 signature bytes.
-     * @param preimageHash The preimage hash for the lock.
-     * @param claimAddress The address that can claim the locked funds.
-     * @param timelock     The timelock value for the lock.
+     * @param processingFee The fee for the processing of the claim.
+     * @param lockParams  Struct containing swap contract lock parameters.
      */
     function claimToSwapContract(
         ISwapHTLC swapContract,
         uint256 deadline,
         bytes calldata signature,
-        bytes32 preimageHash,
-        address claimAddress,
-        address refundAddress,
-        uint256 timelock,
-        uint256 processingFee
+        uint256 processingFee,
+        SwapContractLockParams calldata lockParams
     ) external {
         totalCreatorFee += processingFee;
 
         if (block.timestamp > deadline) revert SignatureExpired();
         if (address(swapContract) == address(0)) revert InvalidSwapContract();
-        if (claimAddress == address(0)) revert InvalidClaimAddress();
-        if (refundAddress == address(0)) revert InvalidRefundAddress();
+        if (lockParams.claimAddress == address(0)) revert InvalidClaimAddress();
+        if (lockParams.refundAddress == address(0)) revert InvalidRefundAddress();
 
         isValidClaim();
-        uint256 creatorAmount = claimableBalance();
+        uint256 claimableAmount = claimableBalance();
 
-        // Verify signature
-        verifyClaimSignature(swapContract, deadline, signature);
+        verifyEIP712SignatureForClaim(
+            swapContract,
+            claimableAmount,
+            deadline,
+            processingFee,
+            lockParams.preimageHash,
+            lockParams.refundAddress,
+            signature
+        );
 
-        // Execute claim
-        executeClaimToSwapContract(swapContract, creatorAmount, preimageHash, claimAddress, refundAddress, timelock);
+        status = Status.Claimed;
+        emit Claimed(claimableAmount, totalCreatorFee, totalContributorFee);
+
+        sendFundsToSwapContract(swapContract, claimableAmount, totalCreatorFee + totalContributorFee, lockParams);
     }
 
     function cancel() external {
@@ -523,20 +617,48 @@ contract Aon is Initializable, Nonces {
 
     function swipeFunds() public {
         isValidSwipe();
-        emit FundsSwiped();
 
-        // slither-disable-next-line low-level-calls
-        (bool success, bytes memory reason) = factory.owner().call{value: address(this).balance}("");
-        require(success, FailedToSwipeFunds(reason));
+        // Send fees to fee recipient: both fees if unclaimed, otherwise only contributor fees
+        uint256 fees = isUnclaimed() ? totalCreatorFee + totalContributorFee : totalContributorFee;
+        uint256 recipientAmount = address(this).balance - fees;
+        address payable swipeRecipient = factory.swipeRecipient();
+
+        emit FundsSwiped(swipeRecipient, fees, recipientAmount);
+
+        if (fees > 0) {
+            (bool feeSent, bytes memory feeReason) = factory.feeRecipient().call{value: fees}("");
+            require(feeSent, FailedToSendFeeRecipientAmount(feeReason));
+        }
+
+        // Send everything (remaining) to recipient
+        if (recipientAmount > 0) {
+            (bool sent, bytes memory reason) = swipeRecipient.call{value: recipientAmount}("");
+            require(sent, FailedToSwipeFunds(reason));
+        }
     }
 
-    /*
-    * Private Functions
-    */
-    function verifyClaimSignature(ISwapHTLC swapContract, uint256 deadline, bytes calldata signature) private {
+    function verifyEIP712SignatureForClaim(
+        ISwapHTLC swapContract,
+        uint256 claimableAmount,
+        uint256 deadline,
+        uint256 processingFee,
+        bytes32 preimageHash,
+        address refundAddress,
+        bytes calldata signature
+    ) private {
         uint256 nonce = nonces(creator);
         bytes32 structHash = keccak256(
-            abi.encode(_CLAIM_TO_SWAP_CONTRACT_TYPEHASH, creator, swapContract, claimableBalance(), nonce, deadline)
+            abi.encode(
+                _CLAIM_TO_SWAP_CONTRACT_TYPEHASH,
+                creator,
+                swapContract,
+                claimableAmount,
+                nonce,
+                deadline,
+                processingFee,
+                preimageHash,
+                refundAddress
+            )
         );
 
         bytes32 digest = MessageHashUtils.toTypedDataHash(_DOMAIN_SEPARATOR, structHash);
@@ -546,61 +668,30 @@ contract Aon is Initializable, Nonces {
         _useNonce(creator);
     }
 
-    function executeClaimToSwapContract(
+    function sendFundsToSwapContract(
         ISwapHTLC swapContract,
-        uint256 creatorAmount,
-        bytes32 preimageHash,
-        address claimAddress,
-        address refundAddress,
-        uint256 timelock
+        uint256 amount,
+        uint256 feeRecipientAmount,
+        SwapContractLockParams calldata lockParams
     ) private {
-        status = Status.Claimed;
-        emit Claimed(creatorAmount, totalCreatorFee, totalContributorFee);
-
-        // Send platform fees and tips
-        uint256 totalPlatformAmount = totalCreatorFee + totalContributorFee;
-        if (totalPlatformAmount > 0) {
-            (bool success, bytes memory reason) = factory.owner().call{value: totalPlatformAmount}("");
-            require(success, FailedToSendPlatformAmount(reason));
+        if (feeRecipientAmount > 0) {
+            (bool success, bytes memory reason) = factory.feeRecipient().call{value: feeRecipientAmount}("");
+            require(success, FailedToSendFeeRecipientAmount(reason));
         }
 
         // Send remaining funds to swap contract
-        if (creatorAmount > 0) {
+        if (amount > 0) {
             // slither-disable-next-line low-level-calls
-            (bool success, bytes memory reason) = address(swapContract).call{value: creatorAmount}(
+            (bool success, bytes memory reason) = address(swapContract).call{value: amount}(
                 abi.encodeWithSignature(
-                    "lock(bytes32,address,address,uint256)", preimageHash, claimAddress, refundAddress, timelock
+                    lockParams.functionSignature,
+                    lockParams.preimageHash,
+                    lockParams.claimAddress,
+                    lockParams.refundAddress,
+                    lockParams.timelock
                 )
             );
             require(success, FailedToSendFundsInClaim(reason));
         }
-    }
-
-    function executeRefundToSwapContract(
-        address contributor,
-        ISwapHTLC swapContract,
-        uint256 refundAmount,
-        bytes32 preimageHash,
-        address claimAddress,
-        address refundAddress,
-        uint256 timelock
-    ) private {
-        // Consume nonce to prevent replay
-        _useNonce(contributor);
-
-        // -----------------------------------------------------------------
-        // Execute refund
-        // -----------------------------------------------------------------
-        contributions[contributor] = 0;
-        emit ContributionRefunded(contributor, refundAmount);
-
-        // slither-disable-next-line low-level-calls
-        (bool success, bytes memory reason) = address(swapContract).call{value: refundAmount}(
-            abi.encodeWithSignature(
-                "lock(bytes32,address,address,uint256)", preimageHash, claimAddress, refundAddress, timelock
-            )
-        );
-
-        require(success, FailedToRefund(reason));
     }
 }
