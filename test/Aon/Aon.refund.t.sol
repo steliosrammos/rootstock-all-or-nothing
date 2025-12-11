@@ -99,6 +99,23 @@ contract AonRefundTest is AonTestBase {
         );
     }
 
+    function test_Refund_FailsWhenGoalReachedAndWithinClaimWindow() public {
+        // Contribute enough to reach the goal
+        vm.prank(contributor1);
+        aon.contribute{value: GOAL}(0, 0);
+
+        // Fast-forward past endTime but still within claim window
+        vm.warp(aon.endTime() + 1 days);
+
+        // Verify status is Successful (goal reached, within claim window)
+        assertTrue(aon.getStatus() == Aon.Status.Successful, "Campaign should be successful");
+
+        // Attempt to refund should fail
+        vm.prank(contributor1);
+        vm.expectRevert(Aon.CannotRefundDuringClaimWindow.selector);
+        aon.refund(0);
+    }
+
     function test_Refund_SuccessWhenBalanceDropsBelowGoalAfterCampaignEnd() public {
         // Setup: Goal is reached
         vm.prank(contributor1);

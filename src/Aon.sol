@@ -93,6 +93,7 @@ contract Aon is Initializable, Nonces {
     error RefundWouldDropBalanceBelowGoal(uint256 balance, uint256 refundAmount, uint256 goal);
     error ProcessingFeeHigherThanRefundAmount(uint256 refundAmount, uint256 processingFee);
     error FailedToRefund(bytes reason);
+    error CannotRefundDuringClaimWindow();
 
     // EIP-712 / signature errors
     error InvalidSignature();
@@ -304,6 +305,13 @@ contract Aon is Initializable, Nonces {
         */
         if (!isCancelled() && block.timestamp <= endTime && goalReached && _goalBalance - refundAmount < goal) {
             revert RefundWouldDropBalanceBelowGoal(_goalBalance, refundAmount, goal);
+        }
+
+        /*
+            A contributor cannot refund during the claim window of a successful campaign.
+        */
+        if (!isCancelled() && goalReached && block.timestamp > endTime && block.timestamp <= endTime + claimWindow) {
+            revert CannotRefundDuringClaimWindow();
         }
 
         return refundAmount;
