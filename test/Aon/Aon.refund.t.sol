@@ -90,7 +90,6 @@ contract AonRefundTest is AonTestBase {
 
         // Fast-forward past claim window
         vm.warp(aon.endTime() + aon.claimWindow() + 1 days);
-        assertTrue(aon.isUnclaimed(), "Campaign should be in unclaimed state");
 
         uint256 contributorInitialBalance = contributor1.balance;
         vm.prank(contributor1);
@@ -100,7 +99,7 @@ contract AonRefundTest is AonTestBase {
         );
     }
 
-    function test_Refund_UnclaimedContract_AfterBalanceDropsBelowGoal() public {
+    function test_Refund_SuccessWhenBalanceDropsBelowGoalAfterCampaignEnd() public {
         // Setup: Goal is reached
         vm.prank(contributor1);
         aon.contribute{value: GOAL}(0, 0);
@@ -111,7 +110,6 @@ contract AonRefundTest is AonTestBase {
 
         // Fast-forward past claim window (contract becomes unclaimed)
         vm.warp(aon.endTime() + aon.claimWindow() + 1 days);
-        assertTrue(aon.isUnclaimed(), "Campaign should be in unclaimed state");
         assertTrue(aon.goalBalance() >= GOAL, "Balance should be at or above goal initially");
 
         // First refund: contributor1 refunds their GOAL amount
@@ -122,9 +120,6 @@ contract AonRefundTest is AonTestBase {
 
         // Verify first refund succeeded
         assertEq(contributor1.balance, contributor1InitialBalance + GOAL, "First contributor should get money back");
-
-        // Verify status is now set to Unclaimed (stored state)
-        assertEq(uint256(aon.status()), uint256(Aon.Status.Unclaimed), "Status should be Unclaimed");
 
         // Verify balance is now below goal
         assertTrue(aon.goalBalance() < GOAL, "Balance should be below goal after first refund");
@@ -165,7 +160,7 @@ contract AonRefundTest is AonTestBase {
         vm.prank(contributor1);
         vm.expectRevert(
             abi.encodeWithSelector(
-                Aon.InsufficientBalanceForRefund.selector, address(aon).balance, contributionAmount, GOAL
+                Aon.RefundWouldDropBalanceBelowGoal.selector, address(aon).balance, contributionAmount, GOAL
             )
         );
         aon.refund(0);

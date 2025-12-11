@@ -93,7 +93,7 @@ contract Aon is Initializable, Nonces {
     error CannotRefundClaimedContract();
     error CannotRefundRefundedContract();
     error CannotRefundZeroContribution();
-    error InsufficientBalanceForRefund(uint256 balance, uint256 refundAmount, uint256 goal);
+    error RefundWouldDropBalanceBelowGoal(uint256 balance, uint256 refundAmount, uint256 goal);
     error ProcessingFeeHigherThanRefundAmount(uint256 refundAmount, uint256 processingFee);
     error FailedToRefund(bytes reason);
 
@@ -249,21 +249,11 @@ contract Aon is Initializable, Nonces {
         return status == Status.Claimed;
     }
 
-    // slither-disable-next-line timestamp
-    function isUnclaimed() public view returns (bool) {
-        // This is HORRIBLE. Why would you check status === Status.Unclaimed twice?
-        // Check stored status first - if already set to Unclaimed, return true
-        if (status == Status.Unclaimed) return true;
-
-        // Otherwise derive from current state
-        return _isUnclaimed(goalReachedStrategy.isGoalReached());
-    }
-
     /// @dev Internal version that accepts cached goalReached value to avoid redundant external calls
     // slither-disable-next-line timestamp
     function _isUnclaimed(bool goalReached) internal view returns (bool) {
         // slither-disable-next-line timestamp
-        return status == Status.Unclaimed || (block.timestamp > endTime + claimWindow && goalReached);
+        return block.timestamp > endTime + claimWindow && goalReached;
     }
 
     // slither-disable-next-line timestamp
@@ -315,18 +305,14 @@ contract Aon is Initializable, Nonces {
         uint256 _goalBalance = goalBalance();
 
         /*
-            A refund  can be claimed before the goal is reached, or if the refund would not cause the balance to drop
-            below the goal (unless the contract is unclaimed).
+            A contributor cannot refund while the campaign is active, if the refund would cause the balance to drop
+            below the goal.
         */
-        if (goalReached && _goalBalance - refundAmount < goal && !_isUnclaimed(goalReached)) {
-            revert InsufficientBalanceForRefund(_goalBalance, refundAmount, goal);
+        if (!isCancelled() && block.timestamp <= endTime && goalReached && _goalBalance - refundAmount < goal) {
+            revert RefundWouldDropBalanceBelowGoal(_goalBalance, refundAmount, goal);
         }
 
-        if (isCancelled() || _isFailed(goalReached) || _isUnclaimed(goalReached) || !goalReached) {
-            return refundAmount;
-        }
-
-        return 0;
+        return refundAmount;
     }
 
     function isValidClaim() private view {
@@ -423,27 +409,11 @@ contract Aon is Initializable, Nonces {
         contributeFor(msg.sender, fee, tip);
     }
 
-    function prepareRefund(address contributor, uint256 processingFee) internal returns (uint256) {
-        bool goalReached = goalReachedStrategy.isGoalReached();
-
-        // Is this needed? Would _isUnclaimed by itself not be sufficient?
-        /*
-            Set the status to Unclaimed so that the status doesn't depend on the balance anymore, and the refunds can
-            continue going through even if the balance drops below the goal.
-        */
-        if (status != Status.Unclaimed && _isUnclaimed(goalReached)) {
-            status = Status.Unclaimed;
-        }
-        uint256 refundAmount = getRefundAmount(contributor, processingFee);
-
-        return refundAmount;
-    }
-
     /**
      * @notice Refund the sender's contributions. Used to refund contributions directly on Rootstock.
      */
     function refund(uint256 processingFee) external {
-        uint256 refundAmount = prepareRefund(msg.sender, processingFee);
+        uint256 refundAmount = getRefundAmount(msg.sender, processingFee);
 
         contributions[msg.sender] = 0;
         emit ContributionRefunded(msg.sender, refundAmount);
@@ -489,7 +459,7 @@ contract Aon is Initializable, Nonces {
         if (lockParams.claimAddress == address(0)) revert InvalidClaimAddress();
         if (lockParams.refundAddress == address(0)) revert InvalidRefundAddress();
 
-        uint256 refundAmount = prepareRefund(contributor, processingFee);
+        uint256 refundAmount = getRefundAmount(contributor, processingFee);
 
         // IMPORTANT
         // Also needs to include the function signature
@@ -624,15 +594,13 @@ contract Aon is Initializable, Nonces {
         // The inconsistency of those "isSmthg" functions that sometimes return a bool but also revert is beyond me but alright
         isValidSwipe();
 
-        // Send fees to fee recipient: both fees if unclaimed, otherwise only contributor fees
-        uint256 fees = isUnclaimed() ? totalCreatorFee + totalContributorFee : totalContributorFee;
-        uint256 recipientAmount = address(this).balance - fees;
+        uint256 recipientAmount = address(this).balance - totalContributorFee;
         address payable swipeRecipient = factory.swipeRecipient();
 
-        emit FundsSwiped(swipeRecipient, fees, recipientAmount);
+        emit FundsSwiped(swipeRecipient, totalContributorFee, recipientAmount);
 
-        if (fees > 0) {
-            (bool feeSent, bytes memory feeReason) = factory.feeRecipient().call{value: fees}("");
+        if (totalContributorFee > 0) {
+            (bool feeSent, bytes memory feeReason) = factory.feeRecipient().call{value: totalContributorFee}("");
             require(feeSent, FailedToSendFeeRecipientAmount(feeReason));
         }
 
