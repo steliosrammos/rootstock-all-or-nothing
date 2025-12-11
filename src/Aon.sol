@@ -502,7 +502,7 @@ contract Aon is Initializable, Nonces {
                 nonce,
                 deadline,
                 processingFee,
-                lockCallData
+                keccak256(lockCallData)
             )
         );
         bytes32 digest = MessageHashUtils.toTypedDataHash(_DOMAIN_SEPARATOR, structHash);
