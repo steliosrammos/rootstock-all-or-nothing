@@ -48,7 +48,6 @@ contract Aon is Initializable, Nonces {
     event ContributionReceived(address indexed contributor, uint256 amount);
 
     error GoalNotReached();
-    error GoalReachedAlready();
     error InvalidContribution();
     error FailedToSwipeFunds(bytes reason);
     error AlreadyClaimed();
@@ -89,9 +88,7 @@ contract Aon is Initializable, Nonces {
     error TotalCreatorFeeOverflow();
 
     // Refund Errors
-    error CannotRefundNonActiveContract();
     error CannotRefundClaimedContract();
-    error CannotRefundRefundedContract();
     error CannotRefundZeroContribution();
     error RefundWouldDropBalanceBelowGoal(uint256 balance, uint256 refundAmount, uint256 goal);
     error ProcessingFeeHigherThanRefundAmount(uint256 refundAmount, uint256 processingFee);
@@ -102,11 +99,8 @@ contract Aon is Initializable, Nonces {
     error SignatureExpired();
 
     // Swipe Funds Errors
-    error CannotSwipeFundsInClaimedContract();
-    error CannotSwipeFundsInRefundedContract();
     error CannotSwipeFundsBeforeEndOfClaimOrRefundWindow();
     error NoFundsToSwipe();
-    error OnlyFactoryCanSwipeFunds();
 
     // Swap Contract Errors
     error InvalidSwapContract();
