@@ -469,9 +469,6 @@ contract Aon is Initializable, Nonces {
 
         uint256 refundAmount = getRefundAmount(contributor, processingFee);
 
-        // IMPORTANT
-        // Also needs to include the function signature
-        // Worth considering that all parameters (or their hash) are included in the signature to avoid frontrunning to troll and lock funds we won't accept
         verifyEIP712SignatureForRefund(
             contributor, swapContract, refundAmount, processingFee, lockCallData, signature, deadline
         );
@@ -560,8 +557,6 @@ contract Aon is Initializable, Nonces {
         isValidClaim();
         uint256 claimableAmount = claimableBalance();
 
-        // IMPORTANT
-        // Also needs to include the function signature
         verifyEIP712SignatureForClaim(swapContract, claimableAmount, processingFee, lockCallData, signature, deadline);
 
         status = Status.Claimed;
