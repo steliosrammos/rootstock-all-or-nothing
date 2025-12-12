@@ -612,7 +612,7 @@ contract Aon is Initializable, Nonces {
                 nonce,
                 deadline,
                 processingFee,
-                lockCallData
+                keccak256(lockCallData)
             )
         );
 
