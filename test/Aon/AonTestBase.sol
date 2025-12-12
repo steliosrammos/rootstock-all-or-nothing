@@ -147,7 +147,7 @@ abstract contract AonTestBase is Test {
                 nonce,
                 deadline,
                 processingFee,
-                lockCallData
+                keccak256(lockCallData)
             )
         );
 
