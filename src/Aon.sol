@@ -450,11 +450,11 @@ contract Aon is Initializable, Nonces {
      * @param contributor The address that originally contributed and signed
      *                    the permit.
      * @param swapContract The address where the refunded funds will be sent.
-     * @param deadline    Timestamp after which the signature is no longer
-     *                    valid.
      * @param processingFee The fee for the processing of the refund.
      * @param lockCallData  The call data for the swap contract lock function.
      * @param signature   The EIP-712 signature bytes.
+     * @param deadline    Timestamp after which the signature is no longer
+     *                    valid.
      */
     function refundToSwapContract(
         address contributor,
