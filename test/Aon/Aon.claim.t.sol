@@ -569,30 +569,8 @@ contract AonClaimTest is AonTestBase {
     }
 
     /*
-    * PROCESSING FEE OVERFLOW PROTECTION TESTS
+    * PROCESSING FEE TESTS
     */
-
-    function test_Claim_FailsWhenProcessingFeeWouldOverflow() public {
-        // Set up campaign and reach goal with a large creator fee
-        uint256 nearMax = type(uint256).max - 1 ether;
-        uint256 largeValue = type(uint256).max - 0.5 ether; // Slightly less than max to avoid VM issues
-
-        // Give contributor1 enough ETH
-        vm.deal(contributor1, largeValue);
-
-        // Make a contribution with a large creator fee that brings totalCreatorFee close to max
-        vm.prank(contributor1);
-        aon.contribute{value: largeValue}(nearMax, 0);
-
-        vm.warp(aon.endTime() + 1 days);
-
-        // Now try to claim with a processing fee that would overflow
-        uint256 overflowProcessingFee = 2 ether;
-
-        vm.prank(creator);
-        vm.expectRevert(Aon.TotalCreatorFeeOverflow.selector);
-        aon.claim(overflowProcessingFee);
-    }
 
     function test_Claim_SucceedsWhenProcessingFeeIsWithinSafeRange() public {
         // Set up campaign and reach goal with a large creator fee
@@ -615,63 +593,6 @@ contract AonClaimTest is AonTestBase {
         aon.claim(safeProcessingFee);
 
         assertEq(aon.totalCreatorFee(), safeCreatorFee + safeProcessingFee, "Total creator fee should accumulate");
-    }
-
-    function test_ClaimToSwapContract_FailsWhenProcessingFeeWouldOverflow() public {
-        // Set up campaign and reach goal with a large creator fee
-        uint256 nearMax = type(uint256).max - 1 ether;
-        uint256 largeValue = type(uint256).max - 0.5 ether; // Slightly less than max to avoid VM issues
-
-        // Give contributor1 enough ETH
-        vm.deal(contributor1, largeValue);
-
-        // Make a contribution with a large creator fee
-        vm.prank(contributor1);
-        aon.contribute{value: largeValue}(nearMax, 0);
-
-        vm.warp(aon.endTime() + 1 days);
-
-        // Prepare claim to swap contract
-        address swapContract = address(0x456);
-        uint256 deadline = block.timestamp + 1 hours;
-        uint256 claimAmount = aon.claimableBalance();
-        uint256 overflowProcessingFee = 2 ether;
-
-        bytes32 preimageHash = bytes32(0);
-        bytes32 structHash = keccak256(
-            abi.encode(
-                keccak256(
-                    "Claim(address creator,address swapContract,uint256 amount,uint256 nonce,uint256 deadline,uint256 processingFee,bytes32 preimageHash,address refundAddress)"
-                ),
-                creator,
-                swapContract,
-                claimAmount,
-                aon.nonces(creator),
-                deadline,
-                overflowProcessingFee,
-                preimageHash,
-                address(0x789)
-            )
-        );
-
-        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", aon.domainSeparator(), structHash));
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(creatorPrivateKey, digest);
-        bytes memory signature = abi.encodePacked(r, s, v);
-
-        vm.expectRevert(Aon.TotalCreatorFeeOverflow.selector);
-        aon.claimToSwapContract(
-            ISwapHTLC(swapContract),
-            deadline,
-            signature,
-            overflowProcessingFee,
-            Aon.SwapContractLockParams({
-                preimageHash: bytes32(0),
-                claimAddress: address(0x456),
-                refundAddress: address(0x789),
-                timelock: 7200,
-                functionSignature: "lock(bytes32,address,address,uint256)"
-            })
-        );
     }
 
     function test_ClaimToSwapContract_SucceedsWhenProcessingFeeIsWithinSafeRange() public {

@@ -85,7 +85,7 @@ contract Aon is Initializable, Nonces {
     error OnlyCreatorCanClaim();
     error FailedToSendFundsInClaim(bytes reason);
     error FailedToSendFeeRecipientAmount(bytes reason);
-    error TotalCreatorFeeOverflow();
+    error ContributionFeeCannotExceedContributionAmount();
 
     // Refund Errors
     error CannotRefundClaimedContract();
@@ -364,6 +364,7 @@ contract Aon is Initializable, Nonces {
         if (_amount == 0) revert InvalidContribution();
         if (_contributorFee >= _amount) revert ContributorFeeCannotExceedContributionAmount();
         if (_creatorFee >= _amount) revert CreatorFeeCannotExceedContributionAmount();
+        if (_creatorFee + _contributorFee >= _amount) revert ContributionFeeCannotExceedContributionAmount();
     }
 
     function isValidSwipe() public view {
@@ -515,7 +516,6 @@ contract Aon is Initializable, Nonces {
     }
 
     function claim(uint256 processingFee) external {
-        if (processingFee > type(uint256).max - totalCreatorFee) revert TotalCreatorFeeOverflow();
         totalCreatorFee += processingFee;
         uint256 creatorAmount = canClaim(msg.sender);
         status = Status.Claimed;
@@ -560,7 +560,6 @@ contract Aon is Initializable, Nonces {
         if (address(swapContract) == address(0)) revert InvalidSwapContract();
         if (lockParams.claimAddress == address(0)) revert InvalidClaimAddress();
         if (lockParams.refundAddress == address(0)) revert InvalidRefundAddress();
-        if (processingFee > type(uint256).max - totalCreatorFee) revert TotalCreatorFeeOverflow();
 
         totalCreatorFee += processingFee;
         isValidClaim();

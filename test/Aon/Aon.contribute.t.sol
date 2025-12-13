@@ -179,6 +179,43 @@ contract AonContributeTest is AonTestBase {
         );
     }
 
+    function test_Contribute_FailsIfCombinedFeesExceedContribution() public {
+        // Creator fee and contributor fee individually are valid, but combined exceed the contribution
+        uint256 creatorFeeAmount = 0.6 ether;
+        uint256 contributorFeeAmount = 0.6 ether;
+        // Combined: 1.2 ether > CONTRIBUTION_AMOUNT (1 ether)
+
+        vm.prank(contributor1);
+        vm.expectRevert(Aon.ContributionFeeCannotExceedContributionAmount.selector);
+        aon.contribute{value: CONTRIBUTION_AMOUNT}(creatorFeeAmount, contributorFeeAmount);
+    }
+
+    function test_Contribute_FailsIfCombinedFeesEqualContribution() public {
+        // Creator fee and contributor fee combined exactly equal the contribution (should fail)
+        uint256 creatorFeeAmount = 0.5 ether;
+        uint256 contributorFeeAmount = 0.5 ether;
+        // Combined: 1 ether == CONTRIBUTION_AMOUNT (1 ether)
+
+        vm.prank(contributor1);
+        vm.expectRevert(Aon.ContributionFeeCannotExceedContributionAmount.selector);
+        aon.contribute{value: CONTRIBUTION_AMOUNT}(creatorFeeAmount, contributorFeeAmount);
+    }
+
+    function test_Contribute_SucceedsIfCombinedFeesLessThanContribution() public {
+        // Creator fee and contributor fee combined are less than the contribution
+        uint256 creatorFeeAmount = 0.3 ether;
+        uint256 contributorFeeAmount = 0.3 ether;
+        // Combined: 0.6 ether < CONTRIBUTION_AMOUNT (1 ether)
+        uint256 expectedContribution = CONTRIBUTION_AMOUNT - contributorFeeAmount;
+
+        vm.prank(contributor1);
+        aon.contribute{value: CONTRIBUTION_AMOUNT}(creatorFeeAmount, contributorFeeAmount);
+
+        assertEq(aon.contributions(contributor1), expectedContribution, "Contribution should exclude contributor fee");
+        assertEq(aon.totalCreatorFee(), creatorFeeAmount, "Creator fee should be tracked");
+        assertEq(aon.totalContributorFee(), contributorFeeAmount, "Contributor fee should be tracked");
+    }
+
     function test_ContributeFor_WithContributorFees_Success() public {
         uint256 contributorFeeAmount = PROCESSING_FEE;
         uint256 expectedContribution = CONTRIBUTION_AMOUNT - contributorFeeAmount;
