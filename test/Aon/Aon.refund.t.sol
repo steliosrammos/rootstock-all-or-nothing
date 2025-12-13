@@ -24,7 +24,8 @@ contract AonRefundTest is AonTestBase {
         assertEq(
             contributor1.balance, contributorInitialBalance + CONTRIBUTION_AMOUNT, "Contributor should get money back"
         );
-        assertEq(aon.contributions(contributor1), 0, "Contribution record should be cleared");
+        (uint128 amount,) = aon.contributions(contributor1);
+        assertEq(amount, 0, "Contribution record should be cleared");
     }
 
     function test_Refund_SuccessIfCancelled() public {
@@ -90,7 +91,6 @@ contract AonRefundTest is AonTestBase {
 
         // Fast-forward past claim window
         vm.warp(aon.endTime() + aon.claimWindow() + 1 days);
-        assertTrue(aon.isUnclaimed(), "Campaign should be in unclaimed state");
 
         uint256 contributorInitialBalance = contributor1.balance;
         vm.prank(contributor1);
@@ -100,7 +100,24 @@ contract AonRefundTest is AonTestBase {
         );
     }
 
-    function test_Refund_UnclaimedContract_AfterBalanceDropsBelowGoal() public {
+    function test_Refund_FailsWhenGoalReachedAndWithinClaimWindow() public {
+        // Contribute enough to reach the goal
+        vm.prank(contributor1);
+        aon.contribute{value: GOAL}(0, 0);
+
+        // Fast-forward past endTime but still within claim window
+        vm.warp(aon.endTime() + 1 days);
+
+        // Verify status is Successful (goal reached, within claim window)
+        assertTrue(aon.getStatus() == Aon.Status.Successful, "Campaign should be successful");
+
+        // Attempt to refund should fail
+        vm.prank(contributor1);
+        vm.expectRevert(Aon.CannotRefundDuringClaimWindow.selector);
+        aon.refund(0);
+    }
+
+    function test_Refund_SuccessWhenBalanceDropsBelowGoalAfterCampaignEnd() public {
         // Setup: Goal is reached
         vm.prank(contributor1);
         aon.contribute{value: GOAL}(0, 0);
@@ -111,7 +128,6 @@ contract AonRefundTest is AonTestBase {
 
         // Fast-forward past claim window (contract becomes unclaimed)
         vm.warp(aon.endTime() + aon.claimWindow() + 1 days);
-        assertTrue(aon.isUnclaimed(), "Campaign should be in unclaimed state");
         assertTrue(aon.goalBalance() >= GOAL, "Balance should be at or above goal initially");
 
         // First refund: contributor1 refunds their GOAL amount
@@ -122,9 +138,6 @@ contract AonRefundTest is AonTestBase {
 
         // Verify first refund succeeded
         assertEq(contributor1.balance, contributor1InitialBalance + GOAL, "First contributor should get money back");
-
-        // Verify status is now set to Unclaimed (stored state)
-        assertEq(uint256(aon.status()), uint256(Aon.Status.Unclaimed), "Status should be Unclaimed");
 
         // Verify balance is now below goal
         assertTrue(aon.goalBalance() < GOAL, "Balance should be below goal after first refund");
@@ -165,7 +178,7 @@ contract AonRefundTest is AonTestBase {
         vm.prank(contributor1);
         vm.expectRevert(
             abi.encodeWithSelector(
-                Aon.InsufficientBalanceForRefund.selector, address(aon).balance, contributionAmount, GOAL
+                Aon.RefundWouldDropBalanceBelowGoal.selector, address(aon).balance, contributionAmount, GOAL
             )
         );
         aon.refund(0);
@@ -198,7 +211,8 @@ contract AonRefundTest is AonTestBase {
             "Contributor should get contribution back (not contributor fee)"
         );
         assertEq(factoryOwner.balance, factoryInitialBalance, "Factory should not receive contributor fees on refund");
-        assertEq(aon.contributions(contributor1), 0, "Contribution record should be cleared");
+        (uint128 amount,) = aon.contributions(contributor1);
+        assertEq(amount, 0, "Contribution record should be cleared");
         assertEq(aon.totalContributorFee(), contributorFeeAmount, "Total contributor fee should remain unchanged");
     }
 
@@ -259,7 +273,8 @@ contract AonRefundTest is AonTestBase {
             contributorInitialBalance + CONTRIBUTION_AMOUNT,
             "Contributor should get money back even when active"
         );
-        assertEq(aon.contributions(contributor1), 0, "Contribution record should be cleared");
+        (uint128 amount,) = aon.contributions(contributor1);
+        assertEq(amount, 0, "Contribution record should be cleared");
     }
 
     function test_Refund_MultipleRefundsBySameContributor() public {
@@ -269,7 +284,8 @@ contract AonRefundTest is AonTestBase {
         vm.prank(contributor1);
         aon.contribute{value: 2 ether}(0, 0);
 
-        assertEq(aon.contributions(contributor1), 3 ether, "Total contribution should be 3 ether");
+        (uint128 totalContribution,) = aon.contributions(contributor1);
+        assertEq(totalContribution, 3 ether, "Total contribution should be 3 ether");
 
         // Cancel to allow refund
         vm.prank(creator);
@@ -283,7 +299,8 @@ contract AonRefundTest is AonTestBase {
         assertEq(
             contributor1.balance, contributorInitialBalance + 3 ether, "Contributor should get all contributions back"
         );
-        assertEq(aon.contributions(contributor1), 0, "Contribution record should be cleared");
+        (uint128 amountAfterRefund,) = aon.contributions(contributor1);
+        assertEq(amountAfterRefund, 0, "Contribution record should be cleared");
     }
 
     /*
@@ -297,7 +314,8 @@ contract AonRefundTest is AonTestBase {
 
         // Attacker contributes
         attacker.contribute{value: 1 ether}(0, 0);
-        assertEq(aon.contributions(address(attacker)), 1 ether);
+        (uint128 attackerContribution,) = aon.contributions(address(attacker));
+        assertEq(attackerContribution, 1 ether);
 
         // Cancel campaign to allow refunds
         vm.prank(creator);
@@ -375,7 +393,8 @@ contract AonRefundTest is AonTestBase {
             swapContractInitialBalance + CONTRIBUTION_AMOUNT,
             "Swap contract should receive refund"
         );
-        assertEq(aon.contributions(contributor1), 0, "Contribution should be cleared");
+        (uint128 amount,) = aon.contributions(contributor1);
+        assertEq(amount, 0, "Contribution should be cleared");
         assertEq(aon.nonces(contributor1), nonce + 1, "Nonce should be incremented");
     }
 
@@ -429,7 +448,8 @@ contract AonRefundTest is AonTestBase {
 
         // Verify refund was successful
         assertEq(swapContract.balance, expectedRefund, "Swap contract should receive refund");
-        assertEq(aon.contributions(contributor1), 0, "Contribution should be cleared");
+        (uint128 amount,) = aon.contributions(contributor1);
+        assertEq(amount, 0, "Contribution should be cleared");
         assertEq(aon.nonces(contributor1), nonce + 1, "Nonce should be incremented");
         assertEq(aon.totalContributorFee(), initialTotalContributorFee, "Total contributor fee should not change");
         assertEq(

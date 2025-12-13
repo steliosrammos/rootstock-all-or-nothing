@@ -38,23 +38,7 @@ contract AonGetStatusTest is AonTestBase {
         assertEq(uint256(aon.getStatus()), uint256(Aon.Status.Unclaimed), "Should be Unclaimed");
     }
 
-    function test_GetStatus_ReturnsUnclaimed_WhenStatusIsSetToUnclaimed() public {
-        vm.prank(contributor1);
-        aon.contribute{value: GOAL}(0, 0);
-
-        // Fast-forward past claim window
-        vm.warp(aon.endTime() + aon.claimWindow() + 1 days);
-
-        // First refund sets status to Unclaimed
-        vm.prank(contributor1);
-        aon.refund(0);
-
-        // Verify status is stored as Unclaimed
-        assertEq(uint256(aon.status()), uint256(Aon.Status.Unclaimed), "Stored status should be Unclaimed");
-        assertEq(uint256(aon.getStatus()), uint256(Aon.Status.Unclaimed), "getStatus should return Unclaimed");
-    }
-
-    function test_GetStatus_ReturnsUnclaimed_AfterBalanceDropsBelowGoal() public {
+    function test_GetStatus_ReturnsFailed_AfterBalanceDropsBelowGoal() public {
         vm.prank(contributor1);
         aon.contribute{value: GOAL}(0, 0);
         vm.prank(contributor2);
@@ -67,9 +51,9 @@ contract AonGetStatusTest is AonTestBase {
         vm.prank(contributor1);
         aon.refund(0);
 
-        // Status should still be Unclaimed even though balance is below goal
+        // Status should be Failed since balance dropped below goal and time has expired
         assertTrue(aon.goalBalance() < GOAL, "Balance should be below goal");
-        assertEq(uint256(aon.getStatus()), uint256(Aon.Status.Unclaimed), "Should remain Unclaimed");
+        assertEq(uint256(aon.getStatus()), uint256(Aon.Status.Failed), "Should be Failed when balance drops below goal");
     }
 
     function test_GetStatus_ReturnsFailed_WhenGoalNotReachedAndTimeExpired() public {
@@ -154,16 +138,6 @@ contract AonGetStatusTest is AonTestBase {
         vm.prank(creator);
         aon.claim(0);
         assertEq(uint256(aon.getStatus()), uint256(Aon.Status.Claimed), "Claimed should override Successful");
-    }
-
-    function test_GetStatus_StoredUnclaimedTakesPriority() public {
-        // Test that stored Unclaimed status is returned correctly
-        vm.prank(contributor1);
-        aon.contribute{value: GOAL}(0, 0);
-        vm.warp(aon.endTime() + aon.claimWindow() + 1 days);
-        vm.prank(contributor1);
-        aon.refund(0); // Sets status to Unclaimed
-        assertEq(uint256(aon.getStatus()), uint256(Aon.Status.Unclaimed), "Stored Unclaimed should be returned");
     }
 }
 

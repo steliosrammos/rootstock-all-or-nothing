@@ -12,7 +12,8 @@ contract AonViewTest is AonTestBase {
         vm.prank(contributor1);
         aon.contribute{value: 5 ether}(0, 0);
 
-        (uint256 currentBalance, uint256 targetGoal) = aon.getGoalInfo();
+        uint256 currentBalance = aon.goalBalance();
+        uint256 targetGoal = aon.goal();
 
         assertEq(currentBalance, 5 ether, "Current balance should be 5 ether");
         assertEq(targetGoal, GOAL, "Target goal should be GOAL");
@@ -89,21 +90,21 @@ contract AonViewTest is AonTestBase {
 
     function test_IsValidContribution_ValidatesCorrectly() public view {
         // Should not revert for valid contribution
-        aon.isValidContribution(1 ether, 0);
-        aon.isValidContribution(1 ether, 0.1 ether);
+        aon.isValidContribution(1 ether, 0, 0);
+        aon.isValidContribution(1 ether, 0.1 ether, 0);
     }
 
     function test_IsValidContribution_FailsIfAfterEndTime() public {
         vm.warp(aon.endTime() + 1 days);
         vm.expectRevert(Aon.CannotContributeAfterEndTime.selector);
-        aon.isValidContribution(1 ether, 0);
+        aon.isValidContribution(1 ether, 0, 0);
     }
 
     function test_IsValidContribution_FailsIfCancelled() public {
         vm.prank(creator);
         aon.cancel();
         vm.expectRevert(Aon.CannotContributeToCancelledContract.selector);
-        aon.isValidContribution(1 ether, 0);
+        aon.isValidContribution(1 ether, 0, 0);
     }
 
     function test_IsValidSwipe_ValidatesCorrectly() public {

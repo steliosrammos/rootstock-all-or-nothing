@@ -48,7 +48,6 @@ contract Aon is Initializable, Nonces {
     event ContributionReceived(address indexed contributor, uint256 amount);
 
     error GoalNotReached();
-    error GoalReachedAlready();
     error InvalidContribution();
     error FailedToSwipeFunds(bytes reason);
     error AlreadyClaimed();
@@ -66,6 +65,7 @@ contract Aon is Initializable, Nonces {
     */
     // Contribute Errors
     error ContributorFeeCannotExceedContributionAmount();
+    error CreatorFeeCannotExceedContributionAmount();
     error CannotContributeToCancelledContract();
     error CannotContributeToClaimedContract();
     error CannotContributeToFinalizedContract();
@@ -85,26 +85,23 @@ contract Aon is Initializable, Nonces {
     error OnlyCreatorCanClaim();
     error FailedToSendFundsInClaim(bytes reason);
     error FailedToSendFeeRecipientAmount(bytes reason);
+    error ContributionFeeCannotExceedContributionAmount();
 
     // Refund Errors
-    error CannotRefundNonActiveContract();
     error CannotRefundClaimedContract();
-    error CannotRefundRefundedContract();
     error CannotRefundZeroContribution();
-    error InsufficientBalanceForRefund(uint256 balance, uint256 refundAmount, uint256 goal);
+    error RefundWouldDropBalanceBelowGoal(uint256 balance, uint256 refundAmount, uint256 goal);
     error ProcessingFeeHigherThanRefundAmount(uint256 refundAmount, uint256 processingFee);
     error FailedToRefund(bytes reason);
+    error CannotRefundDuringClaimWindow();
 
     // EIP-712 / signature errors
     error InvalidSignature();
     error SignatureExpired();
 
     // Swipe Funds Errors
-    error CannotSwipeFundsInClaimedContract();
-    error CannotSwipeFundsInRefundedContract();
     error CannotSwipeFundsBeforeEndOfClaimOrRefundWindow();
     error NoFundsToSwipe();
-    error OnlyFactoryCanSwipeFunds();
 
     // Swap Contract Errors
     error InvalidSwapContract();
@@ -112,6 +109,11 @@ contract Aon is Initializable, Nonces {
     error InvalidRefundAddress();
 
     // Structs
+    struct Contribution {
+        uint128 amount;
+        uint128 creatorFee;
+    }
+
     struct SwapContractLockParams {
         string functionSignature;
         bytes32 preimageHash;
@@ -165,7 +167,7 @@ contract Aon is Initializable, Nonces {
     * The status is only updated to Active, Claimed or Cancelled, other statuses are derived from contract state
     */
     Status public status = Status.Active;
-    mapping(address => uint256) public contributions;
+    mapping(address => Contribution) public contributions;
     IAonGoalReached public goalReachedStrategy;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -219,14 +221,6 @@ contract Aon is Initializable, Nonces {
         return address(this).balance - totalContributorFee;
     }
 
-    /// @notice Returns the goal balance and target goal in a single call.
-    /// @dev Used by goal reached strategies to minimize external calls.
-    /// @return currentBalance The current balance counting towards the goal.
-    /// @return targetGoal The target goal amount.
-    function getGoalInfo() external view returns (uint256 currentBalance, uint256 targetGoal) {
-        return (goalBalance(), goal);
-    }
-
     /// @notice Returns the amount of funds available for the creator to claim.
     function claimableBalance() public view returns (uint256) {
         return address(this).balance - totalCreatorFee - totalContributorFee;
@@ -255,20 +249,11 @@ contract Aon is Initializable, Nonces {
         return status == Status.Claimed;
     }
 
-    // slither-disable-next-line timestamp
-    function isUnclaimed() public view returns (bool) {
-        // Check stored status first - if already set to Unclaimed, return true
-        if (status == Status.Unclaimed) return true;
-
-        // Otherwise derive from current state
-        return _isUnclaimed(goalReachedStrategy.isGoalReached());
-    }
-
     /// @dev Internal version that accepts cached goalReached value to avoid redundant external calls
     // slither-disable-next-line timestamp
     function _isUnclaimed(bool goalReached) internal view returns (bool) {
         // slither-disable-next-line timestamp
-        return status == Status.Unclaimed || (block.timestamp > endTime + claimWindow && goalReached);
+        return block.timestamp > endTime + claimWindow && goalReached;
     }
 
     // slither-disable-next-line timestamp
@@ -311,7 +296,7 @@ contract Aon is Initializable, Nonces {
 
         bool goalReached = goalReachedStrategy.isGoalReached();
 
-        uint256 refundAmount = contributions[contributor];
+        uint256 refundAmount = contributions[contributor].amount;
         if (refundAmount <= 0) revert CannotRefundZeroContribution();
         if (processingFee > refundAmount) revert ProcessingFeeHigherThanRefundAmount(refundAmount, processingFee);
 
@@ -320,18 +305,21 @@ contract Aon is Initializable, Nonces {
         uint256 _goalBalance = goalBalance();
 
         /*
-            A refund  can be claimed before the goal is reached, or if the refund would not cause the balance to drop
-            below the goal (unless the contract is unclaimed).
+            A contributor cannot refund while the campaign is active, if the refund would cause the balance to drop
+            below the goal.
         */
-        if (goalReached && _goalBalance - refundAmount < goal && !_isUnclaimed(goalReached)) {
-            revert InsufficientBalanceForRefund(_goalBalance, refundAmount, goal);
+        if (!isCancelled() && block.timestamp <= endTime && goalReached && _goalBalance - refundAmount < goal) {
+            revert RefundWouldDropBalanceBelowGoal(_goalBalance, refundAmount, goal);
         }
 
-        if (isCancelled() || _isFailed(goalReached) || _isUnclaimed(goalReached) || !goalReached) {
-            return refundAmount;
+        /*
+            A contributor cannot refund during the claim window of a successful campaign.
+        */
+        if (!isCancelled() && goalReached && block.timestamp > endTime && block.timestamp <= endTime + claimWindow) {
+            revert CannotRefundDuringClaimWindow();
         }
 
-        return 0;
+        return refundAmount;
     }
 
     function isValidClaim() private view {
@@ -372,7 +360,7 @@ contract Aon is Initializable, Nonces {
         return true;
     }
 
-    function isValidContribution(uint256 _amount, uint256 _contributorFee) public view {
+    function isValidContribution(uint256 _amount, uint128 _creatorFee, uint256 _contributorFee) public view {
         // slither-disable-next-line timestamp
         if (block.timestamp > endTime) revert CannotContributeAfterEndTime();
         if (isCancelled()) revert CannotContributeToCancelledContract();
@@ -380,6 +368,8 @@ contract Aon is Initializable, Nonces {
         if (isFinalized()) revert CannotContributeToFinalizedContract();
         if (_amount == 0) revert InvalidContribution();
         if (_contributorFee >= _amount) revert ContributorFeeCannotExceedContributionAmount();
+        if (_creatorFee >= _amount) revert CreatorFeeCannotExceedContributionAmount();
+        if (_creatorFee + _contributorFee >= _amount) revert ContributionFeeCannotExceedContributionAmount();
     }
 
     function isValidSwipe() public view {
@@ -409,11 +399,12 @@ contract Aon is Initializable, Nonces {
      * @param contributorFee The contributor fee. The contributor fee is deducted from the amount refunded to the contributor. It
      *  can include fees like the payment processing fee, a platform tip, etc.
      */
-    function contributeFor(address contributor, uint256 creatorFee, uint256 contributorFee) public payable {
-        isValidContribution(msg.value, contributorFee);
+    function contributeFor(address contributor, uint128 creatorFee, uint256 contributorFee) public payable {
+        isValidContribution(msg.value, creatorFee, contributorFee);
 
-        uint256 contributionAmount = msg.value - contributorFee;
-        contributions[contributor] += contributionAmount;
+        uint128 contributionAmount = uint128(msg.value - contributorFee);
+        contributions[contributor].amount += contributionAmount;
+        contributions[contributor].creatorFee += creatorFee;
         totalCreatorFee += creatorFee;
         totalContributorFee += contributorFee;
 
@@ -423,32 +414,18 @@ contract Aon is Initializable, Nonces {
     /**
      * @notice Contribute to the campaign for the sender.
      */
-    function contribute(uint256 fee, uint256 tip) external payable {
-        contributeFor(msg.sender, fee, tip);
-    }
-
-    function prepareRefund(address contributor, uint256 processingFee) internal returns (uint256) {
-        bool goalReached = goalReachedStrategy.isGoalReached();
-
-        /*
-            Set the status to Unclaimed so that the status doesn't depend on the balance anymore, and the refunds can
-            continue going through even if the balance drops below the goal.
-        */
-        if (status != Status.Unclaimed && _isUnclaimed(goalReached)) {
-            status = Status.Unclaimed;
-        }
-        uint256 refundAmount = getRefundAmount(contributor, processingFee);
-
-        return refundAmount;
+    function contribute(uint128 creatorFee, uint256 contributorFee) external payable {
+        contributeFor(msg.sender, creatorFee, contributorFee);
     }
 
     /**
      * @notice Refund the sender's contributions. Used to refund contributions directly on Rootstock.
      */
     function refund(uint256 processingFee) external {
-        uint256 refundAmount = prepareRefund(msg.sender, processingFee);
+        uint256 refundAmount = getRefundAmount(msg.sender, processingFee);
 
-        contributions[msg.sender] = 0;
+        totalCreatorFee -= contributions[msg.sender].creatorFee;
+        delete contributions[msg.sender];
         emit ContributionRefunded(msg.sender, refundAmount);
 
         // Send processing fee to fee recipient
@@ -492,8 +469,11 @@ contract Aon is Initializable, Nonces {
         if (lockParams.claimAddress == address(0)) revert InvalidClaimAddress();
         if (lockParams.refundAddress == address(0)) revert InvalidRefundAddress();
 
-        uint256 refundAmount = prepareRefund(contributor, processingFee);
+        uint256 refundAmount = getRefundAmount(contributor, processingFee);
 
+        // IMPORTANT
+        // Also needs to include the function signature
+        // Worth considering that all parameters (or their hash) are included in the signature to avoid frontrunning to troll and lock funds we won't accept
         verifyEIP712SignatureForRefund(
             contributor,
             swapContract,
@@ -505,7 +485,8 @@ contract Aon is Initializable, Nonces {
             signature
         );
 
-        contributions[contributor] = 0;
+        totalCreatorFee -= contributions[contributor].creatorFee;
+        delete contributions[contributor];
         emit ContributionRefunded(contributor, refundAmount);
 
         sendFundsToSwapContract(swapContract, refundAmount, processingFee, lockParams);
@@ -583,16 +564,17 @@ contract Aon is Initializable, Nonces {
         uint256 processingFee,
         SwapContractLockParams calldata lockParams
     ) external {
-        totalCreatorFee += processingFee;
-
         if (block.timestamp > deadline) revert SignatureExpired();
         if (address(swapContract) == address(0)) revert InvalidSwapContract();
         if (lockParams.claimAddress == address(0)) revert InvalidClaimAddress();
         if (lockParams.refundAddress == address(0)) revert InvalidRefundAddress();
 
+        totalCreatorFee += processingFee;
         isValidClaim();
         uint256 claimableAmount = claimableBalance();
 
+        // IMPORTANT
+        // Also needs to include the function signature
         verifyEIP712SignatureForClaim(
             swapContract,
             claimableAmount,
@@ -616,17 +598,18 @@ contract Aon is Initializable, Nonces {
     }
 
     function swipeFunds() public {
+        // OnlyFactoryCanSwipeFunds can be removed if you want everyone to be able to swipe
+        // There are  bunch of unused errors
+        // The inconsistency of those "isSmthg" functions that sometimes return a bool but also revert is beyond me but alright
         isValidSwipe();
 
-        // Send fees to fee recipient: both fees if unclaimed, otherwise only contributor fees
-        uint256 fees = isUnclaimed() ? totalCreatorFee + totalContributorFee : totalContributorFee;
-        uint256 recipientAmount = address(this).balance - fees;
+        uint256 recipientAmount = address(this).balance - totalContributorFee;
         address payable swipeRecipient = factory.swipeRecipient();
 
-        emit FundsSwiped(swipeRecipient, fees, recipientAmount);
+        emit FundsSwiped(swipeRecipient, totalContributorFee, recipientAmount);
 
-        if (fees > 0) {
-            (bool feeSent, bytes memory feeReason) = factory.feeRecipient().call{value: fees}("");
+        if (totalContributorFee > 0) {
+            (bool feeSent, bytes memory feeReason) = factory.feeRecipient().call{value: totalContributorFee}("");
             require(feeSent, FailedToSendFeeRecipientAmount(feeReason));
         }
 

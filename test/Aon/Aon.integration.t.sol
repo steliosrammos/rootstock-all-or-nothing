@@ -12,28 +12,35 @@ contract AonIntegrationTest is AonTestBase {
         // First contribution
         vm.prank(contributor1);
         aon.contribute{value: 1 ether}(0, 0);
-        assertEq(aon.contributions(contributor1), 1 ether, "First contribution should be recorded");
+        (uint128 firstContribution,) = aon.contributions(contributor1);
+        assertEq(firstContribution, 1 ether, "First contribution should be recorded");
 
         // Refund during active campaign (before goal reached, before endTime)
         uint256 contributorInitialBalance = contributor1.balance;
         vm.prank(contributor1);
         aon.refund(0);
         assertEq(contributor1.balance, contributorInitialBalance + 1 ether, "Contributor should get money back");
-        assertEq(aon.contributions(contributor1), 0, "Contribution should be cleared");
+        (uint128 afterRefund,) = aon.contributions(contributor1);
+        assertEq(afterRefund, 0, "Contribution should be cleared");
 
         // Contribute again - should work (campaign is still active)
         vm.prank(contributor1);
         aon.contribute{value: 2 ether}(0, 0);
-        assertEq(aon.contributions(contributor1), 2 ether, "Second contribution should be recorded");
+        (uint128 secondContribution,) = aon.contributions(contributor1);
+        assertEq(secondContribution, 2 ether, "Second contribution should be recorded");
     }
 
     function test_Claim_WithZeroClaimableBalance_OnlyFees() public {
-        // Contribute with creator fees equal to contribution
+        // Contribute with creator fees almost equal to contribution
+        // We can't use GOAL as fee because fee must be < amount, so use GOAL - 1 wei
+        uint128 creatorFee = uint128(GOAL - 1);
         vm.prank(contributor1);
-        aon.contribute{value: GOAL}(GOAL, 0); // All goes to creator fee
+        aon.contribute{value: GOAL}(creatorFee, 0); // Almost all goes to creator fee
 
         vm.warp(aon.endTime() + 1 days);
-        assertEq(aon.claimableBalance(), 0, "Claimable balance should be zero");
+        // claimableBalance = address(this).balance - totalCreatorFee - totalContributorFee
+        // = GOAL - (GOAL - 1) - 0 = 1 wei
+        assertEq(aon.claimableBalance(), 1, "Claimable balance should be 1 wei");
 
         uint256 creatorInitialBalance = creator.balance;
         uint256 feeRecipientInitialBalance = feeRecipient.balance;
@@ -41,9 +48,11 @@ contract AonIntegrationTest is AonTestBase {
         vm.prank(creator);
         aon.claim(0);
 
-        // Creator should receive nothing, fee recipient should receive all
-        assertEq(creator.balance, creatorInitialBalance, "Creator should receive nothing");
-        assertEq(feeRecipient.balance, feeRecipientInitialBalance + GOAL, "Fee recipient should receive all funds");
+        // Creator should receive 1 wei, fee recipient should receive the creator fee
+        assertEq(creator.balance, creatorInitialBalance + 1, "Creator should receive 1 wei");
+        assertEq(
+            feeRecipient.balance, feeRecipientInitialBalance + creatorFee, "Fee recipient should receive creator fee"
+        );
         assertEq(address(aon).balance, 0, "Contract balance should be zero");
         assertEq(uint256(aon.status()), uint256(Aon.Status.Claimed), "Status should be Claimed");
     }
@@ -112,7 +121,8 @@ contract AonIntegrationTest is AonTestBase {
         aon.refund(0);
 
         assertEq(contributor1.balance, contributorInitialBalance + 5 ether, "Contributor should get money back");
-        assertEq(aon.contributions(contributor1), 0, "Contribution should be cleared");
+        (uint128 amount,) = aon.contributions(contributor1);
+        assertEq(amount, 0, "Contribution should be cleared");
     }
 
     function test_CompleteFlow_GoalReached_Unclaimed_Swiped() public {

@@ -192,7 +192,7 @@ contract AonClaimTest is AonTestBase {
     }
 
     function test_Claim_WithCreatorFee_Success() public {
-        uint256 creatorFeeAmount = 0.5 ether;
+        uint128 creatorFeeAmount = 0.5 ether;
         vm.prank(contributor1);
         aon.contribute{value: 5 ether}(creatorFeeAmount, 0);
         vm.prank(contributor2);
@@ -220,6 +220,76 @@ contract AonClaimTest is AonTestBase {
         );
     }
 
+    function test_Claim_TotalCreatorFeeCorrectAfterRefund() public {
+        // Scenario: 2 contributions with creator fees, 1 is refunded
+        // totalCreatorFee SHOULD decrease after refund - fees from refunded contributions are returned
+        uint128 creatorFee1 = 0.1 ether;
+        uint128 creatorFee2 = 0.2 ether;
+        uint256 contributionAmount1 = 5 ether;
+        uint256 contributionAmount2 = 11 ether; // Large enough so goal stays reached after refund
+
+        // Contribution 1: 5 ETH with 0.1 ETH creator fee
+        vm.prank(contributor1);
+        aon.contribute{value: contributionAmount1}(creatorFee1, 0);
+        assertEq(aon.totalCreatorFee(), creatorFee1, "Creator fee should be 0.1 ETH after first contribution");
+
+        // Contribution 2: 11 ETH with 0.2 ETH creator fee
+        vm.prank(contributor2);
+        aon.contribute{value: contributionAmount2}(creatorFee2, 0);
+        assertEq(
+            aon.totalCreatorFee(), creatorFee1 + creatorFee2, "Creator fee should be 0.3 ETH after second contribution"
+        );
+
+        // Contributor 1 refunds
+        // Goal still reached: goalBalance after refund = 11 - 0.2 = 10.8 ETH >= 10 ETH goal
+        vm.prank(contributor1);
+        aon.refund(0);
+
+        // totalCreatorFee SHOULD be reduced by creatorFee1 (0.1 ETH) after refund
+        assertEq(
+            aon.totalCreatorFee(),
+            creatorFee2,
+            "Creator fee should be 0.2 ETH after refund - fee from refunded contribution should be deducted"
+        );
+
+        // Move to claim window
+        vm.warp(aon.endTime() + 1 days);
+        assertTrue(aon.getStatus() == Aon.Status.Successful, "Campaign should be successful");
+
+        uint256 processingFee = 0;
+        uint256 expectedTotalCreatorFee = creatorFee2 + processingFee; // Only fee from non-refunded contribution
+        uint256 creatorInitialBalance = creator.balance;
+        uint256 feeRecipientInitialBalance = feeRecipient.balance;
+
+        // Creator claims
+        vm.prank(creator);
+        aon.claim(processingFee);
+
+        // Verify totalCreatorFee in contract state (only from remaining contribution)
+        assertEq(
+            aon.totalCreatorFee(),
+            expectedTotalCreatorFee,
+            "Total creator fee should only include fee from non-refunded contribution"
+        );
+
+        // Verify fee recipient received only the creator fee from non-refunded contribution
+        assertEq(
+            feeRecipient.balance,
+            feeRecipientInitialBalance + expectedTotalCreatorFee,
+            "Fee recipient should only receive creator fee from non-refunded contribution"
+        );
+
+        // Verify creator received the remaining balance
+        // Contract balance after refund: 11 ETH
+        // Creator gets: 11 ETH - 0.2 ETH (totalCreatorFee) = 10.8 ETH
+        uint256 expectedCreatorAmount = contributionAmount2 - expectedTotalCreatorFee;
+        assertEq(
+            creator.balance,
+            creatorInitialBalance + expectedCreatorAmount,
+            "Creator should receive contribution minus remaining creator fee"
+        );
+    }
+
     function test_Claim_AtClaimWindowBoundary() public {
         vm.prank(contributor1);
         aon.contribute{value: GOAL}(0, 0);
@@ -232,13 +302,17 @@ contract AonClaimTest is AonTestBase {
     }
 
     function test_Claim_WithZeroClaimableBalance() public {
-        // Contribute exactly the goal amount with creator fees equal to the contribution
-        // This creates a scenario where claimableBalance might be 0
+        // Contribute with creator fees almost equal to the contribution
+        // This creates a scenario where claimableBalance is very small (near 0)
+        // We can't use GOAL as fee because fee must be < amount, so use GOAL - 1 wei
+        uint128 creatorFee = uint128(GOAL - 1);
         vm.prank(contributor1);
-        aon.contribute{value: GOAL}(GOAL, 0); // All goes to creator fee
+        aon.contribute{value: GOAL}(creatorFee, 0); // Almost all goes to creator fee
 
         vm.warp(aon.endTime() + 1 days);
-        assertEq(aon.claimableBalance(), 0, "Claimable balance should be zero");
+        // claimableBalance = address(this).balance - totalCreatorFee - totalContributorFee
+        // = GOAL - (GOAL - 1) - 0 = 1 wei
+        assertEq(aon.claimableBalance(), 1, "Claimable balance should be 1 wei");
 
         uint256 creatorInitialBalance = creator.balance;
         uint256 feeRecipientInitialBalance = feeRecipient.balance;
@@ -246,9 +320,11 @@ contract AonClaimTest is AonTestBase {
         vm.prank(creator);
         aon.claim(0);
 
-        // Creator should receive nothing, fee recipient should receive all
-        assertEq(creator.balance, creatorInitialBalance, "Creator should receive nothing");
-        assertEq(feeRecipient.balance, feeRecipientInitialBalance + GOAL, "Fee recipient should receive all funds");
+        // Creator should receive 1 wei, fee recipient should receive the creator fee
+        assertEq(creator.balance, creatorInitialBalance + 1, "Creator should receive 1 wei");
+        assertEq(
+            feeRecipient.balance, feeRecipientInitialBalance + creatorFee, "Fee recipient should receive creator fee"
+        );
         assertEq(address(aon).balance, 0, "Contract balance should be zero");
     }
 
@@ -560,6 +636,96 @@ contract AonClaimTest is AonTestBase {
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", aon.domainSeparator(), structHash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(creatorPrivateKey, digest);
         return abi.encodePacked(r, s, v);
+    }
+
+    /*
+    * PROCESSING FEE TESTS
+    */
+
+    function test_Claim_SucceedsWhenProcessingFeeIsWithinSafeRange() public {
+        // Set up campaign and reach goal with a large creator fee
+        uint128 safeCreatorFee = type(uint128).max / 2;
+        uint256 largeValue = uint256(type(uint128).max) - 0.5 ether; // Large value that fits in uint128
+
+        // Give contributor1 enough ETH
+        vm.deal(contributor1, largeValue);
+
+        // Make a contribution with a large creator fee
+        vm.prank(contributor1);
+        aon.contribute{value: largeValue}(safeCreatorFee, 0);
+
+        vm.warp(aon.endTime() + 1 days);
+
+        // Claim with a processing fee that's within safe range
+        uint256 safeProcessingFee = 1 ether;
+
+        vm.prank(creator);
+        aon.claim(safeProcessingFee);
+
+        assertEq(aon.totalCreatorFee(), safeCreatorFee + safeProcessingFee, "Total creator fee should accumulate");
+    }
+
+    function test_ClaimToSwapContract_SucceedsWhenProcessingFeeIsWithinSafeRange() public {
+        // Set up campaign and reach goal with a large creator fee
+        // Use smaller but still large values to avoid VM issues
+        uint128 safeCreatorFee = 1000 ether;
+        uint256 largeValue = 2000 ether; // msg.value must be > safeCreatorFee
+
+        // Give contributor1 enough ETH
+        vm.deal(contributor1, largeValue);
+
+        // Make a contribution with a large creator fee
+        vm.prank(contributor1);
+        aon.contribute{value: largeValue}(safeCreatorFee, 0);
+
+        vm.warp(aon.endTime() + 1 days);
+
+        // Prepare claim to swap contract
+        address swapContract = address(0x456);
+        uint256 deadline = block.timestamp + 1 hours;
+        uint256 safeProcessingFee = 1 ether;
+
+        // claimableAmount is calculated AFTER processingFee is added to totalCreatorFee
+        // So we need to calculate: address(this).balance - (totalCreatorFee + processingFee) - totalContributorFee
+        uint256 claimAmount =
+            address(aon).balance - (aon.totalCreatorFee() + safeProcessingFee) - aon.totalContributorFee();
+
+        bytes32 preimageHash = bytes32(0);
+        bytes32 structHash = keccak256(
+            abi.encode(
+                keccak256(
+                    "Claim(address creator,address swapContract,uint256 amount,uint256 nonce,uint256 deadline,uint256 processingFee,bytes32 preimageHash,address refundAddress)"
+                ),
+                creator,
+                swapContract,
+                claimAmount,
+                aon.nonces(creator),
+                deadline,
+                safeProcessingFee,
+                preimageHash,
+                address(0x789)
+            )
+        );
+
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", aon.domainSeparator(), structHash));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(creatorPrivateKey, digest);
+        bytes memory signature = abi.encodePacked(r, s, v);
+
+        aon.claimToSwapContract(
+            ISwapHTLC(swapContract),
+            deadline,
+            signature,
+            safeProcessingFee,
+            Aon.SwapContractLockParams({
+                preimageHash: bytes32(0),
+                claimAddress: address(0x456),
+                refundAddress: address(0x789),
+                timelock: 7200,
+                functionSignature: "lock(bytes32,address,address,uint256)"
+            })
+        );
+
+        assertEq(aon.totalCreatorFee(), safeCreatorFee + safeProcessingFee, "Total creator fee should accumulate");
     }
 }
 
