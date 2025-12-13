@@ -458,7 +458,7 @@ contract AonRefundTest is AonTestBase {
         bytes32 structHash = keccak256(
             abi.encode(
                 keccak256(
-                    "Refund(address contributor,address swapContract,uint256 amount,uint256 nonce,uint256 deadline,uint256 processingFee,bytes lockCallData)"
+                    "Refund(address contributor,address swapContract,uint256 amount,uint256 nonce,uint256 deadline,uint256 processingFee,bytes32 lockCallDataHash)"
                 ),
                 contributor1,
                 swapContract,
@@ -466,7 +466,7 @@ contract AonRefundTest is AonTestBase {
                 aon.nonces(contributor1),
                 deadline,
                 processingFee,
-                lockCallData
+                keccak256(lockCallData)
             )
         );
         (uint8 v, bytes32 r, bytes32 s) =

@@ -389,7 +389,7 @@ contract AonClaimTest is AonTestBase {
         bytes32 structHash = keccak256(
             abi.encode(
                 keccak256(
-                    "Claim(address creator,address swapContract,uint256 amount,uint256 nonce,uint256 deadline,uint256 processingFee,bytes lockCallData)"
+                    "Claim(address creator,address swapContract,uint256 amount,uint256 nonce,uint256 deadline,uint256 processingFee,bytes32 lockCallDataHash)"
                 ),
                 creator,
                 swapContract,
@@ -504,7 +504,7 @@ contract AonClaimTest is AonTestBase {
         bytes32 structHash = keccak256(
             abi.encode(
                 keccak256(
-                    "Claim(address creator,address swapContract,uint256 amount,uint256 nonce,uint256 deadline,uint256 processingFee,bytes lockCallData)"
+                    "Claim(address creator,address swapContract,uint256 amount,uint256 nonce,uint256 deadline,uint256 processingFee,bytes32 lockCallDataHash)"
                 ),
                 creator,
                 swapContract,

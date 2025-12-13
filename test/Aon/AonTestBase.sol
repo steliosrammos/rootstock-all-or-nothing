@@ -139,7 +139,7 @@ abstract contract AonTestBase is Test {
         bytes32 structHash = keccak256(
             abi.encode(
                 keccak256(
-                    "Refund(address contributor,address swapContract,uint256 amount,uint256 nonce,uint256 deadline,uint256 processingFee,bytes lockCallData)"
+                    "Refund(address contributor,address swapContract,uint256 amount,uint256 nonce,uint256 deadline,uint256 processingFee,bytes32 lockCallDataHash)"
                 ),
                 contributor,
                 swapContract,

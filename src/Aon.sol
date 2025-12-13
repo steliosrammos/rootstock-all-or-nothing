@@ -141,10 +141,10 @@ contract Aon is Initializable, Nonces {
     bytes32 private constant _EIP712_DOMAIN_TYPEHASH =
         keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
     bytes32 private constant _REFUND_TO_SWAP_CONTRACT_TYPEHASH = keccak256(
-        "Refund(address contributor,address swapContract,uint256 amount,uint256 nonce,uint256 deadline,uint256 processingFee,bytes lockCallData)"
+        "Refund(address contributor,address swapContract,uint256 amount,uint256 nonce,uint256 deadline,uint256 processingFee,bytes32 lockCallDataHash)"
     );
     bytes32 private constant _CLAIM_TO_SWAP_CONTRACT_TYPEHASH = keccak256(
-        "Claim(address creator,address swapContract,uint256 amount,uint256 nonce,uint256 deadline,uint256 processingFee,bytes lockCallData)"
+        "Claim(address creator,address swapContract,uint256 amount,uint256 nonce,uint256 deadline,uint256 processingFee,bytes32 lockCallDataHash)"
     );
 
     // Cached domain separator built in `initialize`
@@ -470,7 +470,7 @@ contract Aon is Initializable, Nonces {
         uint256 refundAmount = getRefundAmount(contributor, processingFee);
 
         verifyEIP712SignatureForRefund(
-            contributor, swapContract, refundAmount, processingFee, lockCallData, signature, deadline
+            contributor, swapContract, refundAmount, processingFee, keccak256(lockCallData), signature, deadline
         );
 
         totalCreatorFee -= contributions[contributor].creatorFee;
@@ -485,7 +485,7 @@ contract Aon is Initializable, Nonces {
         ISwapHTLC swapContract,
         uint256 refundAmount,
         uint256 processingFee,
-        bytes calldata lockCallData,
+        bytes32 lockCallDataHash,
         bytes calldata signature,
         uint256 deadline
     ) private {
@@ -499,7 +499,7 @@ contract Aon is Initializable, Nonces {
                 nonce,
                 deadline,
                 processingFee,
-                keccak256(lockCallData)
+                lockCallDataHash
             )
         );
         bytes32 digest = MessageHashUtils.toTypedDataHash(_DOMAIN_SEPARATOR, structHash);
@@ -557,7 +557,9 @@ contract Aon is Initializable, Nonces {
         isValidClaim();
         uint256 claimableAmount = claimableBalance();
 
-        verifyEIP712SignatureForClaim(swapContract, claimableAmount, processingFee, lockCallData, signature, deadline);
+        verifyEIP712SignatureForClaim(
+            swapContract, claimableAmount, processingFee, keccak256(lockCallData), signature, deadline
+        );
 
         status = Status.Claimed;
         emit Claimed(claimableAmount, totalCreatorFee, totalContributorFee);
@@ -595,7 +597,7 @@ contract Aon is Initializable, Nonces {
         ISwapHTLC swapContract,
         uint256 claimableAmount,
         uint256 processingFee,
-        bytes calldata lockCallData,
+        bytes32 lockCallDataHash,
         bytes calldata signature,
         uint256 deadline
     ) private {
@@ -609,7 +611,7 @@ contract Aon is Initializable, Nonces {
                 nonce,
                 deadline,
                 processingFee,
-                keccak256(lockCallData)
+                lockCallDataHash
             )
         );
 
