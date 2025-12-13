@@ -360,7 +360,7 @@ contract Aon is Initializable, Nonces {
         return true;
     }
 
-    function isValidContribution(uint256 _amount, uint256 _creatorFee, uint256 _contributorFee) public view {
+    function isValidContribution(uint256 _amount, uint128 _creatorFee, uint256 _contributorFee) public view {
         // slither-disable-next-line timestamp
         if (block.timestamp > endTime) revert CannotContributeAfterEndTime();
         if (isCancelled()) revert CannotContributeToCancelledContract();
