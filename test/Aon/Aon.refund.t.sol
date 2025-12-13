@@ -24,7 +24,8 @@ contract AonRefundTest is AonTestBase {
         assertEq(
             contributor1.balance, contributorInitialBalance + CONTRIBUTION_AMOUNT, "Contributor should get money back"
         );
-        assertEq(aon.contributions(contributor1), 0, "Contribution record should be cleared");
+        (uint128 amount,) = aon.contributions(contributor1);
+        assertEq(amount, 0, "Contribution record should be cleared");
     }
 
     function test_Refund_SuccessIfCancelled() public {
@@ -210,7 +211,8 @@ contract AonRefundTest is AonTestBase {
             "Contributor should get contribution back (not contributor fee)"
         );
         assertEq(factoryOwner.balance, factoryInitialBalance, "Factory should not receive contributor fees on refund");
-        assertEq(aon.contributions(contributor1), 0, "Contribution record should be cleared");
+        (uint128 amount,) = aon.contributions(contributor1);
+        assertEq(amount, 0, "Contribution record should be cleared");
         assertEq(aon.totalContributorFee(), contributorFeeAmount, "Total contributor fee should remain unchanged");
     }
 
@@ -271,7 +273,8 @@ contract AonRefundTest is AonTestBase {
             contributorInitialBalance + CONTRIBUTION_AMOUNT,
             "Contributor should get money back even when active"
         );
-        assertEq(aon.contributions(contributor1), 0, "Contribution record should be cleared");
+        (uint128 amount,) = aon.contributions(contributor1);
+        assertEq(amount, 0, "Contribution record should be cleared");
     }
 
     function test_Refund_MultipleRefundsBySameContributor() public {
@@ -281,7 +284,8 @@ contract AonRefundTest is AonTestBase {
         vm.prank(contributor1);
         aon.contribute{value: 2 ether}(0, 0);
 
-        assertEq(aon.contributions(contributor1), 3 ether, "Total contribution should be 3 ether");
+        (uint128 totalContribution,) = aon.contributions(contributor1);
+        assertEq(totalContribution, 3 ether, "Total contribution should be 3 ether");
 
         // Cancel to allow refund
         vm.prank(creator);
@@ -295,7 +299,8 @@ contract AonRefundTest is AonTestBase {
         assertEq(
             contributor1.balance, contributorInitialBalance + 3 ether, "Contributor should get all contributions back"
         );
-        assertEq(aon.contributions(contributor1), 0, "Contribution record should be cleared");
+        (uint128 amountAfterRefund,) = aon.contributions(contributor1);
+        assertEq(amountAfterRefund, 0, "Contribution record should be cleared");
     }
 
     /*
@@ -309,7 +314,8 @@ contract AonRefundTest is AonTestBase {
 
         // Attacker contributes
         attacker.contribute{value: 1 ether}(0, 0);
-        assertEq(aon.contributions(address(attacker)), 1 ether);
+        (uint128 attackerContribution,) = aon.contributions(address(attacker));
+        assertEq(attackerContribution, 1 ether);
 
         // Cancel campaign to allow refunds
         vm.prank(creator);
@@ -387,7 +393,8 @@ contract AonRefundTest is AonTestBase {
             swapContractInitialBalance + CONTRIBUTION_AMOUNT,
             "Swap contract should receive refund"
         );
-        assertEq(aon.contributions(contributor1), 0, "Contribution should be cleared");
+        (uint128 amount,) = aon.contributions(contributor1);
+        assertEq(amount, 0, "Contribution should be cleared");
         assertEq(aon.nonces(contributor1), nonce + 1, "Nonce should be incremented");
     }
 
@@ -441,7 +448,8 @@ contract AonRefundTest is AonTestBase {
 
         // Verify refund was successful
         assertEq(swapContract.balance, expectedRefund, "Swap contract should receive refund");
-        assertEq(aon.contributions(contributor1), 0, "Contribution should be cleared");
+        (uint128 amount,) = aon.contributions(contributor1);
+        assertEq(amount, 0, "Contribution should be cleared");
         assertEq(aon.nonces(contributor1), nonce + 1, "Nonce should be incremented");
         assertEq(aon.totalContributorFee(), initialTotalContributorFee, "Total contributor fee should not change");
         assertEq(

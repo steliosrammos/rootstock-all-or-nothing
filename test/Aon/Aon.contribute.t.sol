@@ -15,7 +15,8 @@ contract AonContributeTest is AonTestBase {
         aon.contribute{value: CONTRIBUTION_AMOUNT}(0, 0);
 
         assertEq(address(aon).balance, CONTRIBUTION_AMOUNT, "Contract balance should increase");
-        assertEq(aon.contributions(contributor1), CONTRIBUTION_AMOUNT, "Contributor's balance should be recorded");
+        (uint128 amount,) = aon.contributions(contributor1);
+        assertEq(amount, CONTRIBUTION_AMOUNT, "Contributor's balance should be recorded");
     }
 
     function test_Contribute_FailsIfZeroAmount() public {
@@ -90,7 +91,7 @@ contract AonContributeTest is AonTestBase {
     }
 
     function test_Contribute_WithCreatorFee_Success() public {
-        uint256 creatorFeeAmount = 0.05 ether;
+        uint128 creatorFeeAmount = 0.05 ether;
         uint256 expectedContribution = CONTRIBUTION_AMOUNT;
 
         vm.prank(contributor1);
@@ -99,18 +100,21 @@ contract AonContributeTest is AonTestBase {
         aon.contribute{value: CONTRIBUTION_AMOUNT}(creatorFeeAmount, 0);
 
         assertEq(address(aon).balance, CONTRIBUTION_AMOUNT, "Contract balance should include creator fee");
-        assertEq(aon.contributions(contributor1), expectedContribution, "Contribution should be recorded");
+        (uint128 amount,) = aon.contributions(contributor1);
+        assertEq(amount, expectedContribution, "Contribution should be recorded");
         assertEq(aon.totalCreatorFee(), creatorFeeAmount, "Total creator fee should be tracked");
     }
 
     function test_Contribute_MultipleContributionsBySameContributor() public {
         vm.prank(contributor1);
         aon.contribute{value: 1 ether}(0, 0);
-        assertEq(aon.contributions(contributor1), 1 ether, "First contribution should be recorded");
+        (uint128 amount1,) = aon.contributions(contributor1);
+        assertEq(amount1, 1 ether, "First contribution should be recorded");
 
         vm.prank(contributor1);
         aon.contribute{value: 2 ether}(0, 0);
-        assertEq(aon.contributions(contributor1), 3 ether, "Contributions should accumulate");
+        (uint128 amount2,) = aon.contributions(contributor1);
+        assertEq(amount2, 3 ether, "Contributions should accumulate");
         assertEq(address(aon).balance, 3 ether, "Contract balance should reflect both contributions");
     }
 
@@ -128,7 +132,8 @@ contract AonContributeTest is AonTestBase {
         aon.contribute{value: CONTRIBUTION_AMOUNT}(0, contributorFeeAmount);
 
         assertEq(address(aon).balance, CONTRIBUTION_AMOUNT, "Contract balance should include contributor fee");
-        assertEq(aon.contributions(contributor1), expectedContribution, "Contribution should exclude contributor fee");
+        (uint128 amount,) = aon.contributions(contributor1);
+        assertEq(amount, expectedContribution, "Contribution should exclude contributor fee");
         assertEq(aon.totalContributorFee(), contributorFeeAmount, "Total contributor fee should be tracked");
     }
 
@@ -167,21 +172,19 @@ contract AonContributeTest is AonTestBase {
             contributorFeeAmount1 + contributorFeeAmount2,
             "Total contributor fees should accumulate"
         );
+        (uint128 amount1,) = aon.contributions(contributor1);
         assertEq(
-            aon.contributions(contributor1),
-            contributionAmount1 - contributorFeeAmount1,
-            "First contribution should exclude contributor fee"
+            amount1, contributionAmount1 - contributorFeeAmount1, "First contribution should exclude contributor fee"
         );
+        (uint128 amount2,) = aon.contributions(contributor2);
         assertEq(
-            aon.contributions(contributor2),
-            contributionAmount2 - contributorFeeAmount2,
-            "Second contribution should exclude contributor fee"
+            amount2, contributionAmount2 - contributorFeeAmount2, "Second contribution should exclude contributor fee"
         );
     }
 
     function test_Contribute_FailsIfCombinedFeesExceedContribution() public {
         // Creator fee and contributor fee individually are valid, but combined exceed the contribution
-        uint256 creatorFeeAmount = 0.6 ether;
+        uint128 creatorFeeAmount = 0.6 ether;
         uint256 contributorFeeAmount = 0.6 ether;
         // Combined: 1.2 ether > CONTRIBUTION_AMOUNT (1 ether)
 
@@ -192,7 +195,7 @@ contract AonContributeTest is AonTestBase {
 
     function test_Contribute_FailsIfCombinedFeesEqualContribution() public {
         // Creator fee and contributor fee combined exactly equal the contribution (should fail)
-        uint256 creatorFeeAmount = 0.5 ether;
+        uint128 creatorFeeAmount = 0.5 ether;
         uint256 contributorFeeAmount = 0.5 ether;
         // Combined: 1 ether == CONTRIBUTION_AMOUNT (1 ether)
 
@@ -203,7 +206,7 @@ contract AonContributeTest is AonTestBase {
 
     function test_Contribute_SucceedsIfCombinedFeesLessThanContribution() public {
         // Creator fee and contributor fee combined are less than the contribution
-        uint256 creatorFeeAmount = 0.3 ether;
+        uint128 creatorFeeAmount = 0.3 ether;
         uint256 contributorFeeAmount = 0.3 ether;
         // Combined: 0.6 ether < CONTRIBUTION_AMOUNT (1 ether)
         uint256 expectedContribution = CONTRIBUTION_AMOUNT - contributorFeeAmount;
@@ -211,7 +214,8 @@ contract AonContributeTest is AonTestBase {
         vm.prank(contributor1);
         aon.contribute{value: CONTRIBUTION_AMOUNT}(creatorFeeAmount, contributorFeeAmount);
 
-        assertEq(aon.contributions(contributor1), expectedContribution, "Contribution should exclude contributor fee");
+        (uint128 amount,) = aon.contributions(contributor1);
+        assertEq(amount, expectedContribution, "Contribution should exclude contributor fee");
         assertEq(aon.totalCreatorFee(), creatorFeeAmount, "Creator fee should be tracked");
         assertEq(aon.totalContributorFee(), contributorFeeAmount, "Contributor fee should be tracked");
     }
@@ -226,12 +230,13 @@ contract AonContributeTest is AonTestBase {
         aon.contributeFor{value: CONTRIBUTION_AMOUNT}(contributor1, 0, contributorFeeAmount);
 
         assertEq(address(aon).balance, CONTRIBUTION_AMOUNT, "Contract balance should include contributor fee");
-        assertEq(aon.contributions(contributor1), expectedContribution, "Contribution should exclude contributor fee");
+        (uint128 amount,) = aon.contributions(contributor1);
+        assertEq(amount, expectedContribution, "Contribution should exclude contributor fee");
         assertEq(aon.totalContributorFee(), contributorFeeAmount, "Total contributor fee should be tracked");
     }
 
     function test_ContributeFor_WithCreatorFee_Success() public {
-        uint256 creatorFeeAmount = 0.05 ether;
+        uint128 creatorFeeAmount = 0.05 ether;
         uint256 expectedContribution = CONTRIBUTION_AMOUNT;
 
         vm.prank(factoryOwner);
@@ -240,7 +245,8 @@ contract AonContributeTest is AonTestBase {
         aon.contributeFor{value: CONTRIBUTION_AMOUNT}(contributor1, creatorFeeAmount, 0);
 
         assertEq(address(aon).balance, CONTRIBUTION_AMOUNT, "Contract balance should include creator fee");
-        assertEq(aon.contributions(contributor1), expectedContribution, "Contribution should be recorded");
+        (uint128 amount2,) = aon.contributions(contributor1);
+        assertEq(amount2, expectedContribution, "Contribution should be recorded");
         assertEq(aon.totalCreatorFee(), creatorFeeAmount, "Total creator fee should be tracked");
     }
 }

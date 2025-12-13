@@ -109,6 +109,11 @@ contract Aon is Initializable, Nonces {
     error InvalidRefundAddress();
 
     // Structs
+    struct Contribution {
+        uint128 amount;
+        uint128 creatorFee;
+    }
+
     struct SwapContractLockParams {
         string functionSignature;
         bytes32 preimageHash;
@@ -162,7 +167,7 @@ contract Aon is Initializable, Nonces {
     * The status is only updated to Active, Claimed or Cancelled, other statuses are derived from contract state
     */
     Status public status = Status.Active;
-    mapping(address => uint256) public contributions;
+    mapping(address => Contribution) public contributions;
     IAonGoalReached public goalReachedStrategy;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -291,7 +296,7 @@ contract Aon is Initializable, Nonces {
 
         bool goalReached = goalReachedStrategy.isGoalReached();
 
-        uint256 refundAmount = contributions[contributor];
+        uint256 refundAmount = contributions[contributor].amount;
         if (refundAmount <= 0) revert CannotRefundZeroContribution();
         if (processingFee > refundAmount) revert ProcessingFeeHigherThanRefundAmount(refundAmount, processingFee);
 
@@ -394,11 +399,12 @@ contract Aon is Initializable, Nonces {
      * @param contributorFee The contributor fee. The contributor fee is deducted from the amount refunded to the contributor. It
      *  can include fees like the payment processing fee, a platform tip, etc.
      */
-    function contributeFor(address contributor, uint256 creatorFee, uint256 contributorFee) public payable {
+    function contributeFor(address contributor, uint128 creatorFee, uint256 contributorFee) public payable {
         isValidContribution(msg.value, creatorFee, contributorFee);
 
-        uint256 contributionAmount = msg.value - contributorFee;
-        contributions[contributor] += contributionAmount;
+        uint128 contributionAmount = uint128(msg.value - contributorFee);
+        contributions[contributor].amount += contributionAmount;
+        contributions[contributor].creatorFee += creatorFee;
         totalCreatorFee += creatorFee;
         totalContributorFee += contributorFee;
 
@@ -408,8 +414,8 @@ contract Aon is Initializable, Nonces {
     /**
      * @notice Contribute to the campaign for the sender.
      */
-    function contribute(uint256 fee, uint256 tip) external payable {
-        contributeFor(msg.sender, fee, tip);
+    function contribute(uint128 creatorFee, uint256 contributorFee) external payable {
+        contributeFor(msg.sender, creatorFee, contributorFee);
     }
 
     /**
@@ -418,7 +424,8 @@ contract Aon is Initializable, Nonces {
     function refund(uint256 processingFee) external {
         uint256 refundAmount = getRefundAmount(msg.sender, processingFee);
 
-        contributions[msg.sender] = 0;
+        totalCreatorFee -= contributions[msg.sender].creatorFee;
+        delete contributions[msg.sender];
         emit ContributionRefunded(msg.sender, refundAmount);
 
         // Send processing fee to fee recipient
@@ -478,7 +485,8 @@ contract Aon is Initializable, Nonces {
             signature
         );
 
-        contributions[contributor] = 0;
+        totalCreatorFee -= contributions[contributor].creatorFee;
+        delete contributions[contributor];
         emit ContributionRefunded(contributor, refundAmount);
 
         sendFundsToSwapContract(swapContract, refundAmount, processingFee, lockParams);

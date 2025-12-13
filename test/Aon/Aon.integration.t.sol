@@ -12,25 +12,28 @@ contract AonIntegrationTest is AonTestBase {
         // First contribution
         vm.prank(contributor1);
         aon.contribute{value: 1 ether}(0, 0);
-        assertEq(aon.contributions(contributor1), 1 ether, "First contribution should be recorded");
+        (uint128 firstContribution,) = aon.contributions(contributor1);
+        assertEq(firstContribution, 1 ether, "First contribution should be recorded");
 
         // Refund during active campaign (before goal reached, before endTime)
         uint256 contributorInitialBalance = contributor1.balance;
         vm.prank(contributor1);
         aon.refund(0);
         assertEq(contributor1.balance, contributorInitialBalance + 1 ether, "Contributor should get money back");
-        assertEq(aon.contributions(contributor1), 0, "Contribution should be cleared");
+        (uint128 afterRefund,) = aon.contributions(contributor1);
+        assertEq(afterRefund, 0, "Contribution should be cleared");
 
         // Contribute again - should work (campaign is still active)
         vm.prank(contributor1);
         aon.contribute{value: 2 ether}(0, 0);
-        assertEq(aon.contributions(contributor1), 2 ether, "Second contribution should be recorded");
+        (uint128 secondContribution,) = aon.contributions(contributor1);
+        assertEq(secondContribution, 2 ether, "Second contribution should be recorded");
     }
 
     function test_Claim_WithZeroClaimableBalance_OnlyFees() public {
         // Contribute with creator fees almost equal to contribution
         // We can't use GOAL as fee because fee must be < amount, so use GOAL - 1 wei
-        uint256 creatorFee = GOAL - 1;
+        uint128 creatorFee = uint128(GOAL - 1);
         vm.prank(contributor1);
         aon.contribute{value: GOAL}(creatorFee, 0); // Almost all goes to creator fee
 
@@ -118,7 +121,8 @@ contract AonIntegrationTest is AonTestBase {
         aon.refund(0);
 
         assertEq(contributor1.balance, contributorInitialBalance + 5 ether, "Contributor should get money back");
-        assertEq(aon.contributions(contributor1), 0, "Contribution should be cleared");
+        (uint128 amount,) = aon.contributions(contributor1);
+        assertEq(amount, 0, "Contribution should be cleared");
     }
 
     function test_CompleteFlow_GoalReached_Unclaimed_Swiped() public {

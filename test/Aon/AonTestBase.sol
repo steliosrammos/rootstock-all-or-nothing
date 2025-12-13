@@ -148,7 +148,7 @@ contract MaliciousRefund {
         aon = _aon;
     }
 
-    function contribute(uint256 fee, uint256 contributorFee) external payable {
+    function contribute(uint128 fee, uint256 contributorFee) external payable {
         aon.contribute{value: msg.value}(fee, contributorFee);
     }
 
