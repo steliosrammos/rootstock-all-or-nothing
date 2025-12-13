@@ -397,7 +397,7 @@ contract AonClaimTest is AonTestBase {
                 aon.nonces(creator),
                 deadline,
                 processingFee,
-                lockCallData
+                keccak256(lockCallData)
             )
         );
         (uint8 v, bytes32 r, bytes32 s) =
@@ -512,7 +512,7 @@ contract AonClaimTest is AonTestBase {
                 aon.nonces(creator),
                 deadline,
                 processingFee,
-                lockCallData
+                keccak256(lockCallData)
             )
         );
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", aon.domainSeparator(), structHash));

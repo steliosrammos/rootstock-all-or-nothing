@@ -379,7 +379,7 @@ contract AonRefundTest is AonTestBase {
         );
         (uint128 amount,) = aon.contributions(contributor1);
         assertEq(amount, 0, "Contribution should be cleared");
-        assertEq(aon.nonces(contributor1), nonce + 1, "Nonce should be incremented");
+        assertEq(aon.nonces(contributor1), initialNonce + 1, "Nonce should be incremented");
     }
 
     function test_RefundToSwapContract_WithProcessingFee_Success() public {
