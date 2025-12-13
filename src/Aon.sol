@@ -537,11 +537,11 @@ contract Aon is Initializable, Nonces {
      *         signed message. Funds are sent to the specified swap contract.
      *
      * @param swapContract The address where the claimed funds will be sent.
-     * @param deadline    Timestamp after which the signature is no longer
-     *                    valid.
      * @param processingFee The fee for the processing of the claim.
      * @param lockCallData  The call data for the swap contract lock function.
      * @param signature   The EIP-712 signature bytes.
+     * @param deadline    Timestamp after which the signature is no longer
+     *                    valid.
      */
     function claimToSwapContract(
         ISwapHTLC swapContract,
@@ -572,9 +572,6 @@ contract Aon is Initializable, Nonces {
     }
 
     function swipeFunds() public {
-        // OnlyFactoryCanSwipeFunds can be removed if you want everyone to be able to swipe
-        // There are  bunch of unused errors
-        // The inconsistency of those "isSmthg" functions that sometimes return a bool but also revert is beyond me but alright
         isValidSwipe();
 
         uint256 recipientAmount = address(this).balance - totalContributorFee;
