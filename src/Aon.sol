@@ -141,10 +141,10 @@ contract Aon is Initializable, Nonces {
     bytes32 private constant _EIP712_DOMAIN_TYPEHASH =
         keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
     bytes32 private constant _REFUND_TO_SWAP_CONTRACT_TYPEHASH = keccak256(
-        "Refund(address contributor,address swapContract,uint256 amount,uint256 nonce,uint256 deadline,uint256 processingFee,bytes32 preimageHash,address refundAddress)"
+        "Refund(address contributor,address swapContract,uint256 amount,uint256 nonce,uint256 deadline,uint256 processingFee,bytes32 lockCallDataHash)"
     );
     bytes32 private constant _CLAIM_TO_SWAP_CONTRACT_TYPEHASH = keccak256(
-        "Claim(address creator,address swapContract,uint256 amount,uint256 nonce,uint256 deadline,uint256 processingFee,bytes32 preimageHash,address refundAddress)"
+        "Claim(address creator,address swapContract,uint256 amount,uint256 nonce,uint256 deadline,uint256 processingFee,bytes32 lockCallDataHash)"
     );
 
     // Cached domain separator built in `initialize`
@@ -450,57 +450,44 @@ contract Aon is Initializable, Nonces {
      * @param contributor The address that originally contributed and signed
      *                    the permit.
      * @param swapContract The address where the refunded funds will be sent.
+     * @param processingFee The fee for the processing of the refund.
+     * @param lockCallData  The call data for the swap contract lock function.
+     * @param signature   The EIP-712 signature bytes.
      * @param deadline    Timestamp after which the signature is no longer
      *                    valid.
-     * @param signature   The EIP-712 signature bytes.
-     * @param processingFee The fee for the processing of the refund.
-     * @param lockParams  Struct containing swap contract lock parameters.
      */
     function refundToSwapContract(
         address contributor,
         ISwapHTLC swapContract,
-        uint256 deadline,
-        bytes calldata signature,
         uint256 processingFee,
-        SwapContractLockParams calldata lockParams
+        bytes calldata lockCallData,
+        bytes calldata signature,
+        uint256 deadline
     ) external {
         if (block.timestamp > deadline) revert SignatureExpired();
         if (address(swapContract) == address(0)) revert InvalidSwapContract();
-        if (lockParams.claimAddress == address(0)) revert InvalidClaimAddress();
-        if (lockParams.refundAddress == address(0)) revert InvalidRefundAddress();
 
         uint256 refundAmount = getRefundAmount(contributor, processingFee);
 
-        // IMPORTANT
-        // Also needs to include the function signature
-        // Worth considering that all parameters (or their hash) are included in the signature to avoid frontrunning to troll and lock funds we won't accept
         verifyEIP712SignatureForRefund(
-            contributor,
-            swapContract,
-            refundAmount,
-            deadline,
-            processingFee,
-            lockParams.preimageHash,
-            lockParams.refundAddress,
-            signature
+            contributor, swapContract, refundAmount, processingFee, keccak256(lockCallData), signature, deadline
         );
 
         totalCreatorFee -= contributions[contributor].creatorFee;
         delete contributions[contributor];
         emit ContributionRefunded(contributor, refundAmount);
 
-        sendFundsToSwapContract(swapContract, refundAmount, processingFee, lockParams);
+        sendFundsToSwapContract(swapContract, refundAmount, processingFee, lockCallData);
     }
 
     function verifyEIP712SignatureForRefund(
         address contributor,
         ISwapHTLC swapContract,
         uint256 refundAmount,
-        uint256 deadline,
         uint256 processingFee,
-        bytes32 preimageHash,
-        address refundAddress,
-        bytes calldata signature
+        bytes32 lockCallDataHash,
+        bytes calldata signature,
+        uint256 deadline
     ) private {
         uint256 nonce = nonces(contributor);
         bytes32 structHash = keccak256(
@@ -512,8 +499,7 @@ contract Aon is Initializable, Nonces {
                 nonce,
                 deadline,
                 processingFee,
-                preimageHash,
-                refundAddress
+                lockCallDataHash
             )
         );
         bytes32 digest = MessageHashUtils.toTypedDataHash(_DOMAIN_SEPARATOR, structHash);
@@ -551,44 +537,34 @@ contract Aon is Initializable, Nonces {
      *         signed message. Funds are sent to the specified swap contract.
      *
      * @param swapContract The address where the claimed funds will be sent.
+     * @param processingFee The fee for the processing of the claim.
+     * @param lockCallData  The call data for the swap contract lock function.
+     * @param signature   The EIP-712 signature bytes.
      * @param deadline    Timestamp after which the signature is no longer
      *                    valid.
-     * @param signature   The EIP-712 signature bytes.
-     * @param processingFee The fee for the processing of the claim.
-     * @param lockParams  Struct containing swap contract lock parameters.
      */
     function claimToSwapContract(
         ISwapHTLC swapContract,
-        uint256 deadline,
-        bytes calldata signature,
         uint256 processingFee,
-        SwapContractLockParams calldata lockParams
+        bytes calldata lockCallData,
+        bytes calldata signature,
+        uint256 deadline
     ) external {
         if (block.timestamp > deadline) revert SignatureExpired();
         if (address(swapContract) == address(0)) revert InvalidSwapContract();
-        if (lockParams.claimAddress == address(0)) revert InvalidClaimAddress();
-        if (lockParams.refundAddress == address(0)) revert InvalidRefundAddress();
 
         totalCreatorFee += processingFee;
         isValidClaim();
         uint256 claimableAmount = claimableBalance();
 
-        // IMPORTANT
-        // Also needs to include the function signature
         verifyEIP712SignatureForClaim(
-            swapContract,
-            claimableAmount,
-            deadline,
-            processingFee,
-            lockParams.preimageHash,
-            lockParams.refundAddress,
-            signature
+            swapContract, claimableAmount, processingFee, keccak256(lockCallData), signature, deadline
         );
 
         status = Status.Claimed;
         emit Claimed(claimableAmount, totalCreatorFee, totalContributorFee);
 
-        sendFundsToSwapContract(swapContract, claimableAmount, totalCreatorFee + totalContributorFee, lockParams);
+        sendFundsToSwapContract(swapContract, claimableAmount, totalCreatorFee + totalContributorFee, lockCallData);
     }
 
     function cancel() external {
@@ -598,9 +574,6 @@ contract Aon is Initializable, Nonces {
     }
 
     function swipeFunds() public {
-        // OnlyFactoryCanSwipeFunds can be removed if you want everyone to be able to swipe
-        // There are  bunch of unused errors
-        // The inconsistency of those "isSmthg" functions that sometimes return a bool but also revert is beyond me but alright
         isValidSwipe();
 
         uint256 recipientAmount = address(this).balance - totalContributorFee;
@@ -623,11 +596,10 @@ contract Aon is Initializable, Nonces {
     function verifyEIP712SignatureForClaim(
         ISwapHTLC swapContract,
         uint256 claimableAmount,
-        uint256 deadline,
         uint256 processingFee,
-        bytes32 preimageHash,
-        address refundAddress,
-        bytes calldata signature
+        bytes32 lockCallDataHash,
+        bytes calldata signature,
+        uint256 deadline
     ) private {
         uint256 nonce = nonces(creator);
         bytes32 structHash = keccak256(
@@ -639,8 +611,7 @@ contract Aon is Initializable, Nonces {
                 nonce,
                 deadline,
                 processingFee,
-                preimageHash,
-                refundAddress
+                lockCallDataHash
             )
         );
 
@@ -655,7 +626,7 @@ contract Aon is Initializable, Nonces {
         ISwapHTLC swapContract,
         uint256 amount,
         uint256 feeRecipientAmount,
-        SwapContractLockParams calldata lockParams
+        bytes calldata lockCallData
     ) private {
         if (feeRecipientAmount > 0) {
             (bool success, bytes memory reason) = factory.feeRecipient().call{value: feeRecipientAmount}("");
@@ -665,15 +636,7 @@ contract Aon is Initializable, Nonces {
         // Send remaining funds to swap contract
         if (amount > 0) {
             // slither-disable-next-line low-level-calls
-            (bool success, bytes memory reason) = address(swapContract).call{value: amount}(
-                abi.encodeWithSignature(
-                    lockParams.functionSignature,
-                    lockParams.preimageHash,
-                    lockParams.claimAddress,
-                    lockParams.refundAddress,
-                    lockParams.timelock
-                )
-            );
+            (bool success, bytes memory reason) = address(swapContract).call{value: amount}(lockCallData);
             require(success, FailedToSendFundsInClaim(reason));
         }
     }

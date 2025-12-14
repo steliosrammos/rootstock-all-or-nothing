@@ -163,22 +163,29 @@ contract AonViewTest is AonTestBase {
 
         address swapContract = address(0x123);
         uint256 deadline = block.timestamp + 1 hours;
-        bytes memory signature =
-            _createRefundSignature(contributor1, swapContract, CONTRIBUTION_AMOUNT, deadline, contributor1PrivateKey);
+        bytes32 preimageHash = bytes32(0);
+        address claimAddress = address(0x123);
+        address refundAddress = address(0x456);
+        uint256 timelock = 3600;
+        uint256 processingFee = 0;
+
+        // Encode lockCallData
+        bytes memory lockCallData = abi.encodeWithSignature(
+            "lock(bytes32,address,address,uint256)", preimageHash, claimAddress, refundAddress, timelock
+        );
+
+        bytes memory signature = _createRefundSignatureWithLockCallData(
+            contributor1,
+            swapContract,
+            CONTRIBUTION_AMOUNT,
+            deadline,
+            processingFee,
+            lockCallData,
+            contributor1PrivateKey
+        );
 
         aon.refundToSwapContract(
-            contributor1,
-            ISwapHTLC(swapContract),
-            deadline,
-            signature,
-            0,
-            Aon.SwapContractLockParams({
-                preimageHash: bytes32(0),
-                claimAddress: address(0x123),
-                refundAddress: address(0x456),
-                timelock: 3600,
-                functionSignature: "lock(bytes32,address,address,uint256)"
-            })
+            contributor1, ISwapHTLC(swapContract), processingFee, lockCallData, signature, deadline
         );
 
         uint256 newNonce = aon.getNonce(contributor1);
