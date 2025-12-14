@@ -289,8 +289,6 @@ contract Aon is Initializable, Nonces {
         if (refundAmount <= 0) revert CannotRefundZeroContribution();
         if (processingFee > refundAmount) revert ProcessingFeeHigherThanRefundAmount(refundAmount, processingFee);
 
-        refundAmount -= processingFee;
-
         uint256 _goalBalance = goalBalance();
 
         /*
@@ -308,6 +306,7 @@ contract Aon is Initializable, Nonces {
             revert CannotRefundDuringClaimWindow();
         }
 
+        refundAmount -= processingFee;
         return refundAmount;
     }
 
