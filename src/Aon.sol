@@ -79,13 +79,12 @@ contract Aon is Initializable, Nonces {
 
     // Claim Errors
     error CannotClaimCancelledContract();
-    error CannotClaimClaimedContract();
     error CannotClaimFailedContract();
     error CannotClaimAfterClaimWindow();
     error OnlyCreatorCanClaim();
     error FailedToSendFundsInClaim(bytes reason);
     error FailedToSendFeeRecipientAmount(bytes reason);
-    error ContributionFeeCannotExceedContributionAmount();
+    error ContributionFeesCannotExceedContributionAmount();
 
     // Refund Errors
     error CannotRefundClaimedContract();
@@ -105,21 +104,11 @@ contract Aon is Initializable, Nonces {
 
     // Swap Contract Errors
     error InvalidSwapContract();
-    error InvalidClaimAddress();
-    error InvalidRefundAddress();
 
     // Structs
     struct Contribution {
         uint128 amount;
         uint128 creatorFee;
-    }
-
-    struct SwapContractLockParams {
-        string functionSignature;
-        bytes32 preimageHash;
-        address claimAddress;
-        address refundAddress;
-        uint256 timelock;
     }
 
     // Status enum
@@ -367,9 +356,7 @@ contract Aon is Initializable, Nonces {
         if (isClaimed()) revert CannotContributeToClaimedContract();
         if (isFinalized()) revert CannotContributeToFinalizedContract();
         if (_amount == 0) revert InvalidContribution();
-        if (_contributorFee >= _amount) revert ContributorFeeCannotExceedContributionAmount();
-        if (_creatorFee >= _amount) revert CreatorFeeCannotExceedContributionAmount();
-        if (_creatorFee + _contributorFee >= _amount) revert ContributionFeeCannotExceedContributionAmount();
+        if (_creatorFee + _contributorFee >= _amount) revert ContributionFeesCannotExceedContributionAmount();
     }
 
     function isValidSwipe() public view {

@@ -141,7 +141,7 @@ contract AonContributeTest is AonTestBase {
         uint256 contributorFeeAmount = 1.1 ether; // Contributor fee exceeds contribution
 
         vm.prank(contributor1);
-        vm.expectRevert(Aon.ContributorFeeCannotExceedContributionAmount.selector);
+        vm.expectRevert(Aon.ContributionFeesCannotExceedContributionAmount.selector);
         aon.contribute{value: CONTRIBUTION_AMOUNT}(0, contributorFeeAmount);
     }
 
@@ -149,7 +149,7 @@ contract AonContributeTest is AonTestBase {
         uint256 contributorFeeAmount = CONTRIBUTION_AMOUNT; // Contributor fee equals contribution (should fail)
 
         vm.prank(contributor1);
-        vm.expectRevert(Aon.ContributorFeeCannotExceedContributionAmount.selector);
+        vm.expectRevert(Aon.ContributionFeesCannotExceedContributionAmount.selector);
         aon.contribute{value: CONTRIBUTION_AMOUNT}(0, contributorFeeAmount);
     }
 
@@ -189,7 +189,7 @@ contract AonContributeTest is AonTestBase {
         // Combined: 1.2 ether > CONTRIBUTION_AMOUNT (1 ether)
 
         vm.prank(contributor1);
-        vm.expectRevert(Aon.ContributionFeeCannotExceedContributionAmount.selector);
+        vm.expectRevert(Aon.ContributionFeesCannotExceedContributionAmount.selector);
         aon.contribute{value: CONTRIBUTION_AMOUNT}(creatorFeeAmount, contributorFeeAmount);
     }
 
@@ -200,7 +200,7 @@ contract AonContributeTest is AonTestBase {
         // Combined: 1 ether == CONTRIBUTION_AMOUNT (1 ether)
 
         vm.prank(contributor1);
-        vm.expectRevert(Aon.ContributionFeeCannotExceedContributionAmount.selector);
+        vm.expectRevert(Aon.ContributionFeesCannotExceedContributionAmount.selector);
         aon.contribute{value: CONTRIBUTION_AMOUNT}(creatorFeeAmount, contributorFeeAmount);
     }
 
