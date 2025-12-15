@@ -116,12 +116,30 @@ abstract contract AonTestBase is Test {
         address refundAddress,
         uint256 privateKey
     ) internal view returns (bytes memory) {
+        // Encode lockCallData from parameters (using default claimAddress and timelock for backward compatibility)
+        bytes memory lockCallData = abi.encodeWithSignature(
+            "lock(bytes32,address,address,uint256)", preimageHash, address(0x123), refundAddress, 3600
+        );
+        return _createRefundSignatureWithLockCallData(
+            contributor, swapContract, amount, deadline, processingFee, lockCallData, privateKey
+        );
+    }
+
+    function _createRefundSignatureWithLockCallData(
+        address contributor,
+        address swapContract,
+        uint256 amount,
+        uint256 deadline,
+        uint256 processingFee,
+        bytes memory lockCallData,
+        uint256 privateKey
+    ) internal view returns (bytes memory) {
         uint256 nonce = aon.nonces(contributor);
 
         bytes32 structHash = keccak256(
             abi.encode(
                 keccak256(
-                    "Refund(address contributor,address swapContract,uint256 amount,uint256 nonce,uint256 deadline,uint256 processingFee,bytes32 preimageHash,address refundAddress)"
+                    "Refund(address contributor,address swapContract,uint256 amount,uint256 nonce,uint256 deadline,uint256 processingFee,bytes32 lockCallDataHash)"
                 ),
                 contributor,
                 swapContract,
@@ -129,8 +147,7 @@ abstract contract AonTestBase is Test {
                 nonce,
                 deadline,
                 processingFee,
-                preimageHash,
-                refundAddress
+                keccak256(lockCallData)
             )
         );
 
@@ -148,7 +165,7 @@ contract MaliciousRefund {
         aon = _aon;
     }
 
-    function contribute(uint256 fee, uint256 contributorFee) external payable {
+    function contribute(uint128 fee, uint256 contributorFee) external payable {
         aon.contribute{value: msg.value}(fee, contributorFee);
     }
 

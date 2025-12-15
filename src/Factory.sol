@@ -15,7 +15,6 @@ contract Factory is Ownable {
     error InvalidImplementation();
     error InvalidSwipeRecipient();
     error InvalidFeeRecipient();
-    error InvalidOwner();
 
     constructor(address _implementation, address payable _swipeRecipient, address payable _feeRecipient, address _owner)
         Ownable(_owner)
@@ -54,6 +53,8 @@ contract Factory is Ownable {
      */
     function create(
         address payable creator,
+        // The goal is not in ether, but in WEI
+        // And might not even be WEI in the future if you do different goal strategies
         uint256 goalInEther,
         uint32 durationInSeconds,
         address goalReachedStrategy,

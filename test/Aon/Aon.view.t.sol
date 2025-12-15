@@ -12,7 +12,8 @@ contract AonViewTest is AonTestBase {
         vm.prank(contributor1);
         aon.contribute{value: 5 ether}(0, 0);
 
-        (uint256 currentBalance, uint256 targetGoal) = aon.getGoalInfo();
+        uint256 currentBalance = aon.goalBalance();
+        uint256 targetGoal = aon.goal();
 
         assertEq(currentBalance, 5 ether, "Current balance should be 5 ether");
         assertEq(targetGoal, GOAL, "Target goal should be GOAL");
@@ -89,21 +90,21 @@ contract AonViewTest is AonTestBase {
 
     function test_IsValidContribution_ValidatesCorrectly() public view {
         // Should not revert for valid contribution
-        aon.isValidContribution(1 ether, 0);
-        aon.isValidContribution(1 ether, 0.1 ether);
+        aon.isValidContribution(1 ether, 0, 0);
+        aon.isValidContribution(1 ether, 0.1 ether, 0);
     }
 
     function test_IsValidContribution_FailsIfAfterEndTime() public {
         vm.warp(aon.endTime() + 1 days);
         vm.expectRevert(Aon.CannotContributeAfterEndTime.selector);
-        aon.isValidContribution(1 ether, 0);
+        aon.isValidContribution(1 ether, 0, 0);
     }
 
     function test_IsValidContribution_FailsIfCancelled() public {
         vm.prank(creator);
         aon.cancel();
         vm.expectRevert(Aon.CannotContributeToCancelledContract.selector);
-        aon.isValidContribution(1 ether, 0);
+        aon.isValidContribution(1 ether, 0, 0);
     }
 
     function test_IsValidSwipe_ValidatesCorrectly() public {
@@ -162,22 +163,29 @@ contract AonViewTest is AonTestBase {
 
         address swapContract = address(0x123);
         uint256 deadline = block.timestamp + 1 hours;
-        bytes memory signature =
-            _createRefundSignature(contributor1, swapContract, CONTRIBUTION_AMOUNT, deadline, contributor1PrivateKey);
+        bytes32 preimageHash = bytes32(0);
+        address claimAddress = address(0x123);
+        address refundAddress = address(0x456);
+        uint256 timelock = 3600;
+        uint256 processingFee = 0;
+
+        // Encode lockCallData
+        bytes memory lockCallData = abi.encodeWithSignature(
+            "lock(bytes32,address,address,uint256)", preimageHash, claimAddress, refundAddress, timelock
+        );
+
+        bytes memory signature = _createRefundSignatureWithLockCallData(
+            contributor1,
+            swapContract,
+            CONTRIBUTION_AMOUNT,
+            deadline,
+            processingFee,
+            lockCallData,
+            contributor1PrivateKey
+        );
 
         aon.refundToSwapContract(
-            contributor1,
-            ISwapHTLC(swapContract),
-            deadline,
-            signature,
-            0,
-            Aon.SwapContractLockParams({
-                preimageHash: bytes32(0),
-                claimAddress: address(0x123),
-                refundAddress: address(0x456),
-                timelock: 3600,
-                functionSignature: "lock(bytes32,address,address,uint256)"
-            })
+            contributor1, ISwapHTLC(swapContract), processingFee, lockCallData, signature, deadline
         );
 
         uint256 newNonce = aon.getNonce(contributor1);
