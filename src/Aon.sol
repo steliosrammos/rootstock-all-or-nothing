@@ -65,7 +65,6 @@ contract Aon is Initializable, Nonces {
     */
     // Contribute Errors
     error ContributorFeeCannotExceedContributionAmount();
-    error CreatorFeeCannotExceedContributionAmount();
     error CannotContributeToCancelledContract();
     error CannotContributeToClaimedContract();
     error CannotContributeToFinalizedContract();
